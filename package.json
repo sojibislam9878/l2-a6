@@ -1,7 +1,7 @@
 {
-  "name": "shitolghor-backend",
+  "name": "agrostore-backend",
   "version": "1.0.0",
-  "description": "ShitolGhor - Agri Cold Storage Booking Platform API",
+  "description": "AgroStore - Agri Cold Storage Booking Platform API",
   "type": "module",
   "main": "dist/server.js",
   "private": true,
