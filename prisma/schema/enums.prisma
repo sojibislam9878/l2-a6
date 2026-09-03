@@ -1,0 +1,43 @@
+enum Role {
+  FARMER
+  WAREHOUSE_OWNER
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  BANNED
+}
+
+enum WarehouseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum BookingStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CANCELLED
+  PAID
+  STORED
+  WITHDRAW_REQUESTED
+  COMPLETED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum QualityGrade {
+  A
+  B
+  C
+  REJECTED
+}

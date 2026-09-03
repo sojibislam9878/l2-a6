@@ -1,0 +1,33 @@
+model Booking {
+  id              String        @id @default(uuid())
+  lotCode         String        @unique @map("lot_code")
+  farmerId        String        @map("farmer_id")
+  chamberId       String        @map("chamber_id")
+  cropTypeId      String        @map("crop_type_id")
+  quantityKg      Int           @map("quantity_kg")
+  startDate       DateTime      @map("start_date") @db.Date
+  endDate         DateTime      @map("end_date") @db.Date
+  ratePerKgPerDay Decimal       @map("rate_per_kg_per_day") @db.Decimal(10, 4)
+  estimatedCost   Decimal       @map("estimated_cost") @db.Decimal(12, 2)
+  finalCost       Decimal?      @map("final_cost") @db.Decimal(12, 2)
+  status          BookingStatus @default(PENDING_APPROVAL)
+  holdExpiresAt   DateTime?     @map("hold_expires_at")
+  storedAt        DateTime?     @map("stored_at")
+  withdrawnAt     DateTime?     @map("withdrawn_at")
+  cancelReason    String?       @map("cancel_reason")
+  deletedAt       DateTime?     @map("deleted_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  farmer     User        @relation("FarmerBookings", fields: [farmerId], references: [id], onDelete: Cascade)
+  chamber    Chamber     @relation(fields: [chamberId], references: [id], onDelete: Cascade)
+  cropType   CropType    @relation(fields: [cropTypeId], references: [id])
+  payment    Payment?
+  inspection Inspection?
+  review     Review?
+
+  @@index([chamberId, status, startDate, endDate])
+  @@index([farmerId, status])
+  @@index([status, holdExpiresAt])
+  @@map("bookings")
+}

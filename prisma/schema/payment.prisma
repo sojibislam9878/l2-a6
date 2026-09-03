@@ -1,0 +1,22 @@
+model Payment {
+  id                    String        @id @default(uuid())
+  bookingId             String        @unique @map("booking_id")
+  farmerId              String        @map("farmer_id")
+  amount                Decimal       @db.Decimal(12, 2)
+  currency              String        @default("usd")
+  amountBdt             Decimal       @map("amount_bdt") @db.Decimal(12, 2)
+  fxRate                Decimal       @map("fx_rate") @db.Decimal(12, 6)
+  provider              String        @default("stripe")
+  stripeSessionId       String?       @unique @map("stripe_session_id")
+  stripePaymentIntentId String?       @unique @map("stripe_payment_intent_id")
+  status                PaymentStatus @default(PENDING)
+  paidAt                DateTime?     @map("paid_at")
+  refundedAt            DateTime?     @map("refunded_at")
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([farmerId, status])
+  @@map("payments")
+}

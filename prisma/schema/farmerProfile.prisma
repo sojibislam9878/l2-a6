@@ -1,0 +1,14 @@
+model FarmerProfile {
+  id           String   @id @default(uuid())
+  userId       String   @unique @map("user_id")
+  district     String
+  upazila      String?
+  nid          String?  @unique
+  farmSizeAcre Decimal? @map("farm_size_acre") @db.Decimal(8, 2)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("farmer_profiles")
+}

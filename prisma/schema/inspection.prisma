@@ -1,0 +1,16 @@
+model Inspection {
+  id          String       @id @default(uuid())
+  bookingId   String       @unique @map("booking_id")
+  inspectorId String       @map("inspector_id")
+  grade       QualityGrade
+  moisturePct Decimal?     @map("moisture_pct") @db.Decimal(5, 2)
+  actualQtyKg Int          @map("actual_qty_kg")
+  notes       String?
+  inspectedAt DateTime     @default(now()) @map("inspected_at")
+
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  inspector User    @relation("InspectorInspections", fields: [inspectorId], references: [id])
+
+  @@index([grade])
+  @@map("inspections")
+}

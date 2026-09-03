@@ -1,0 +1,14 @@
+model CropType {
+  id             String    @id @default(uuid())
+  name           String    @unique
+  idealMinTempC  Decimal   @map("ideal_min_temp_c") @db.Decimal(4, 1)
+  idealMaxTempC  Decimal   @map("ideal_max_temp_c") @db.Decimal(4, 1)
+  maxStorageDays Int       @map("max_storage_days")
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  bookings Booking[]
+
+  @@map("crop_types")
+}
