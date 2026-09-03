@@ -19,6 +19,7 @@ router.post("/verify-otp", validateRequest(verifyOtpSchema), authController.veri
 router.post("/resend-otp", validateRequest(resendOtpSchema), authController.resendOtp);
 router.post("/login", validateRequest(loginSchema), authController.login);
 router.post("/refresh-token", validateRequest(refreshTokenSchema), authController.refreshToken);
+router.post("/logout", validateRequest(refreshTokenSchema), authController.logout);
 router.post("/set-password", auth, validateRequest(setPasswordSchema), authController.setPassword);
 router.post(
   "/change-password",

@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { createOwnerProfileSchema, updateOwnerProfileSchema } from "./ownerProfile.validation.js";
+import type { createOwnerProfileSchema, updateOwnerProfileSchema } from "./owner.validation.js";
 
 export type ICreateOwnerProfilePayload = z.infer<typeof createOwnerProfileSchema>["body"];
 

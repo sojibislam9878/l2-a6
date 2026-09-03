@@ -3,12 +3,12 @@ import { sendResponse } from "../../utils/sendResponse.js";
 import type {
   ICreateOwnerProfilePayload,
   IUpdateOwnerProfilePayload,
-} from "./ownerProfile.interface.js";
-import { ownerProfileService } from "./ownerProfile.service.js";
+} from "./owner.interface.js";
+import { ownerService } from "./owner.service.js";
 
 const createOwnerProfile = catchAsync(async (req, res) => {
   const current = req.user!;
-  const profile = await ownerProfileService.createOwnerProfileDb(
+  const profile = await ownerService.createOwnerProfileDb(
     current.id,
     current.role,
     req.body as ICreateOwnerProfilePayload,
@@ -23,7 +23,7 @@ const createOwnerProfile = catchAsync(async (req, res) => {
 
 const getOwnerProfile = catchAsync(async (req, res) => {
   const current = req.user!;
-  const profile = await ownerProfileService.getOwnerProfileFromDb(current.id, current.role);
+  const profile = await ownerService.getOwnerProfileFromDb(current.id, current.role);
 
   sendResponse(res, {
     statusCode: 200,
@@ -34,7 +34,7 @@ const getOwnerProfile = catchAsync(async (req, res) => {
 
 const updateOwnerProfile = catchAsync(async (req, res) => {
   const current = req.user!;
-  const profile = await ownerProfileService.updateOwnerProfileDb(
+  const profile = await ownerService.updateOwnerProfileDb(
     current.id,
     current.role,
     req.body as IUpdateOwnerProfilePayload,
@@ -47,7 +47,7 @@ const updateOwnerProfile = catchAsync(async (req, res) => {
   });
 });
 
-export const ownerProfileController = {
+export const ownerController = {
   createOwnerProfile,
   getOwnerProfile,
   updateOwnerProfile,

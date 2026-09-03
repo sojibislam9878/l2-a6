@@ -87,6 +87,17 @@ const refreshToken = catchAsync(async (req, res) => {
   });
 });
 
+const logout = catchAsync(async (req, res) => {
+  const fromCookie = req.cookies?.[REFRESH_COOKIE] as string | undefined;
+  const fromBody = (req.body as { refreshToken?: string } | undefined)?.refreshToken;
+
+  await authService.logoutDb(fromCookie ?? fromBody);
+
+  res.clearCookie(REFRESH_COOKIE, { ...refreshCookieOptions, maxAge: undefined });
+
+  sendResponse(res, { statusCode: 200, message: "Logged out successfully" });
+});
+
 const googleRedirect = catchAsync(async (req, res) => {
   const mode = req.query.mode === "json" ? "json" : "redirect";
   const url = await authService.createGoogleAuthUrl(mode);
@@ -176,6 +187,7 @@ export const authController = {
   signup,
   login,
   refreshToken,
+  logout,
   setPassword,
   changePassword,
   googleRedirect,

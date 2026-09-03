@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { catchAsync } from "../utils/catchAsync.js";
 import { jwtUtils } from "../utils/jwt.js";
+import { isJtiRevoked } from "../utils/tokenDenylist.js";
 
 const BEARER_PREFIX = "Bearer ";
 
@@ -20,6 +21,10 @@ export const auth: RequestHandler = catchAsync(async (req, _res, next) => {
   }
 
   const decoded = jwtUtils.verifyAccessToken(token);
+
+  if (await isJtiRevoked(decoded.jti)) {
+    throw new AppError(401, "This session has been logged out. Please log in again.");
+  }
 
   const user = await prisma.user.findUnique({
     where: { id: decoded.sub },

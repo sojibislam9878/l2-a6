@@ -6,6 +6,7 @@ import { AppError } from "../../utils/AppError.js";
 import { buildOtpEmail } from "../../utils/emailTemplates.js";
 import { jwtUtils } from "../../utils/jwt.js";
 import { consumeOtp, issueOtp } from "../../utils/otp.js";
+import { isJtiRevoked, revokeJti } from "../../utils/tokenDenylist.js";
 import { sendEmail } from "../../lib/mailer.js";
 import { GOOGLE_SCOPES, googleClient } from "../../lib/google.js";
 import { connectRedis, redis } from "../../lib/redis.js";
@@ -188,6 +189,10 @@ const loginUserDb = async (payload: ILoginPayload): Promise<IAuthResult> => {
 const refreshTokensDb = async (refreshToken: string): Promise<IAuthResult> => {
   const decoded = jwtUtils.verifyRefreshToken(refreshToken);
 
+  if (await isJtiRevoked(decoded.jti)) {
+    throw new AppError(401, "This session has been logged out. Please log in again.");
+  }
+
   const user = await prisma.user.findUnique({
     where: { id: decoded.sub },
     select: credentialsSelect,
@@ -212,7 +217,22 @@ const refreshTokensDb = async (refreshToken: string): Promise<IAuthResult> => {
     ...publicFields
   } = user;
 
+  await revokeJti(decoded.jti, decoded.exp);
+
   return issueAuthResult(publicFields);
+};
+
+const logoutDb = async (refreshToken: string | undefined): Promise<void> => {
+  if (refreshToken === undefined || refreshToken.length === 0) {
+    return;
+  }
+
+  try {
+    const decoded = jwtUtils.verifyRefreshToken(refreshToken);
+    await revokeJti(decoded.jti, decoded.exp);
+  } catch {
+    return;
+  }
 };
 
 const setPasswordDb = async (userId: string, newPassword: string): Promise<void> => {
@@ -385,6 +405,7 @@ export const authService = {
   refreshTokensDb,
   verifyEmailOtpDb,
   resendEmailOtpDb,
+  logoutDb,
   setPasswordDb,
   changePasswordDb,
   createGoogleAuthUrl,

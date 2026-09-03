@@ -37,3 +37,11 @@ export const updateMeSchema = z.object({
       error: "Provide at least one field to update: name or phone",
     }),
 });
+
+export const deleteMeSchema = z.object({
+  body: z
+    .object({
+      password: z.string().min(1, { error: "password is required to delete your account" }).optional(),
+    })
+    .strict(),
+});

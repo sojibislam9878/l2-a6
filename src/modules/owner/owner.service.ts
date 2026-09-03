@@ -4,7 +4,7 @@ import type {
   ICreateOwnerProfilePayload,
   IOwnerProfile,
   IUpdateOwnerProfilePayload,
-} from "./ownerProfile.interface.js";
+} from "./owner.interface.js";
 
 const ownerProfileSelect = {
   id: true,
@@ -103,7 +103,7 @@ const updateOwnerProfileDb = async (
   });
 };
 
-export const ownerProfileService = {
+export const ownerService = {
   createOwnerProfileDb,
   getOwnerProfileFromDb,
   updateOwnerProfileDb,
