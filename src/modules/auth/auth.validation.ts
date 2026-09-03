@@ -41,3 +41,26 @@ export const signupSchema = z.object({
     })
     .strict(),
 });
+
+export const loginSchema = z.object({
+  body: z
+    .object({
+      email: z
+        .email({ error: "email must be a valid email address" })
+        .trim()
+        .toLowerCase(),
+
+      password: z.string({ error: "password is required" }).min(1, {
+        error: "password is required",
+      }),
+    })
+    .strict(),
+});
+
+export const refreshTokenSchema = z.object({
+  body: z
+    .object({
+      refreshToken: z.string().trim().min(1).optional(),
+    })
+    .strict(),
+});

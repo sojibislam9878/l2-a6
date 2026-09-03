@@ -1,8 +1,10 @@
 import bcrypt from "bcrypt";
+import { randomUUID } from "node:crypto";
 import { env } from "../../config/env.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
-import type { IPublicUser, ISignupPayload } from "./auth.interface.js";
+import { jwtUtils } from "../../utils/jwt.js";
+import type { IAuthResult, ILoginPayload, IPublicUser, ISignupPayload } from "./auth.interface.js";
 import { SELF_SERVICE_ROLES } from "./auth.validation.js";
 
 export const publicUserSelect = {
@@ -15,6 +17,12 @@ export const publicUserSelect = {
   createdAt: true,
 } as const;
 
+const credentialsSelect = {
+  ...publicUserSelect,
+  password: true,
+  deletedAt: true,
+} as const;
+
 type SelectedUser = {
   id: string;
   name: string;
@@ -25,13 +33,34 @@ type SelectedUser = {
   createdAt: Date;
 };
 
-const isProfileComplete = (user: Pick<SelectedUser, "role">, hasOwnerProfile: boolean): boolean =>
-  user.role === "WAREHOUSE_OWNER" ? hasOwnerProfile : true;
+const INVALID_CREDENTIALS = "Invalid email or password";
 
-const toPublicUser = (user: SelectedUser, hasOwnerProfile: boolean): IPublicUser => ({
+let decoyHash: string | null = null;
+
+const equalizeTimingForMissingUser = async (): Promise<void> => {
+  if (decoyHash === null) {
+    decoyHash = await bcrypt.hash(randomUUID(), env.BCRYPT_SALT_ROUNDS);
+  }
+  await bcrypt.compare(randomUUID(), decoyHash);
+};
+
+const hasCompleteProfile = (role: SelectedUser["role"], ownerProfileExists: boolean): boolean =>
+  role === "WAREHOUSE_OWNER" ? ownerProfileExists : true;
+
+const toPublicUser = (user: SelectedUser, ownerProfileExists: boolean): IPublicUser => ({
   ...user,
-  profileComplete: isProfileComplete(user, hasOwnerProfile),
+  profileComplete: hasCompleteProfile(user.role, ownerProfileExists),
 });
+
+const issueAuthResult = (user: SelectedUser, ownerProfileExists: boolean): IAuthResult => {
+  const { accessToken, refreshToken } = jwtUtils.createTokenPair({
+    sub: user.id,
+    email: user.email,
+    role: user.role,
+  });
+
+  return { accessToken, refreshToken, user: toPublicUser(user, ownerProfileExists) };
+};
 
 const registerUserDb = async (payload: ISignupPayload): Promise<IPublicUser> => {
   if (!SELF_SERVICE_ROLES.includes(payload.role)) {
@@ -65,6 +94,64 @@ const registerUserDb = async (payload: ISignupPayload): Promise<IPublicUser> => 
   return toPublicUser(user, false);
 };
 
+const loginUserDb = async (payload: ILoginPayload): Promise<IAuthResult> => {
+  const email = payload.email.toLowerCase();
+
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: credentialsSelect,
+  });
+
+  if (!user || user.deletedAt !== null) {
+    await equalizeTimingForMissingUser();
+    throw new AppError(401, INVALID_CREDENTIALS);
+  }
+
+  if (user.password === null) {
+    throw new AppError(
+      409,
+      "This account was created with Google sign-in. Continue with Google instead.",
+    );
+  }
+
+  const passwordMatches = await bcrypt.compare(payload.password, user.password);
+
+  if (!passwordMatches) {
+    throw new AppError(401, INVALID_CREDENTIALS);
+  }
+
+  if (user.status === "BANNED") {
+    throw new AppError(403, "This account has been banned. Contact support for help.");
+  }
+
+  const { password: _password, deletedAt: _deletedAt, ...publicFields } = user;
+
+  return issueAuthResult(publicFields, false);
+};
+
+const refreshTokensDb = async (refreshToken: string): Promise<IAuthResult> => {
+  const decoded = jwtUtils.verifyRefreshToken(refreshToken);
+
+  const user = await prisma.user.findUnique({
+    where: { id: decoded.sub },
+    select: credentialsSelect,
+  });
+
+  if (!user || user.deletedAt !== null) {
+    throw new AppError(401, "Session is no longer valid, please log in again");
+  }
+
+  if (user.status === "BANNED") {
+    throw new AppError(403, "This account has been banned. Contact support for help.");
+  }
+
+  const { password: _password, deletedAt: _deletedAt, ...publicFields } = user;
+
+  return issueAuthResult(publicFields, false);
+};
+
 export const authService = {
   registerUserDb,
+  loginUserDb,
+  refreshTokensDb,
 };
