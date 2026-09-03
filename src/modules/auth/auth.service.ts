@@ -7,7 +7,15 @@ import { buildOtpEmail } from "../../utils/emailTemplates.js";
 import { jwtUtils } from "../../utils/jwt.js";
 import { consumeOtp, issueOtp } from "../../utils/otp.js";
 import { sendEmail } from "../../lib/mailer.js";
-import type { IAuthResult, ILoginPayload, IPublicUser, ISignupPayload } from "./auth.interface.js";
+import { GOOGLE_SCOPES, googleClient } from "../../lib/google.js";
+import { connectRedis, redis } from "../../lib/redis.js";
+import type {
+  GoogleAuthMode,
+  IAuthResult,
+  ILoginPayload,
+  IPublicUser,
+  ISignupPayload,
+} from "./auth.interface.js";
 import { SELF_SERVICE_ROLES } from "./auth.validation.js";
 
 export const publicUserSelect = {
@@ -230,10 +238,179 @@ const refreshTokensDb = async (refreshToken: string): Promise<IAuthResult> => {
   return issueAuthResult(publicFields, false);
 };
 
+const setPasswordDb = async (userId: string, newPassword: string): Promise<void> => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { password: true },
+  });
+
+  if (!user) {
+    throw new AppError(404, "Account not found");
+  }
+
+  if (user.password !== null) {
+    throw new AppError(
+      409,
+      "This account already has a password. Use POST /api/v1/auth/change-password instead.",
+    );
+  }
+
+  const hashedPassword = await bcrypt.hash(newPassword, env.BCRYPT_SALT_ROUNDS);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { password: hashedPassword },
+  });
+};
+
+const changePasswordDb = async (
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { password: true },
+  });
+
+  if (!user) {
+    throw new AppError(404, "Account not found");
+  }
+
+  if (user.password === null) {
+    throw new AppError(
+      409,
+      "This account signs in with Google and has no password yet. Use POST /api/v1/auth/set-password instead.",
+    );
+  }
+
+  const currentMatches = await bcrypt.compare(currentPassword, user.password);
+
+  if (!currentMatches) {
+    throw new AppError(401, "Current password is incorrect");
+  }
+
+  if (currentPassword === newPassword) {
+    throw new AppError(400, "New password must be different from the current password");
+  }
+
+  const hashedPassword = await bcrypt.hash(newPassword, env.BCRYPT_SALT_ROUNDS);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { password: hashedPassword },
+  });
+};
+
+const GOOGLE_STATE_TTL_SECONDS = 300;
+const stateKey = (state: string) => `oauth:google:state:${state}`;
+
+const createGoogleAuthUrl = async (mode: GoogleAuthMode): Promise<string> => {
+  await connectRedis();
+  const state = randomUUID();
+  await redis.set(stateKey(state), mode, "EX", GOOGLE_STATE_TTL_SECONDS);
+
+  return googleClient.generateAuthUrl({
+    scope: GOOGLE_SCOPES,
+    state,
+    prompt: "select_account",
+  });
+};
+
+const consumeGoogleState = async (state: string): Promise<GoogleAuthMode> => {
+  await connectRedis();
+  const stored = await redis.get(stateKey(state));
+
+  if (stored === null) {
+    throw new AppError(400, "This sign-in link has expired or was already used. Start again.");
+  }
+
+  await redis.del(stateKey(state));
+  return stored === "json" ? "json" : "redirect";
+};
+
+const googleAuthDb = async (code: string): Promise<IAuthResult> => {
+  const { tokens } = await googleClient.getToken(code);
+
+  if (!tokens.id_token) {
+    throw new AppError(401, "Google did not return an identity token");
+  }
+
+  const ticket = await googleClient.verifyIdToken({
+    idToken: tokens.id_token,
+    audience: env.GOOGLE_CLIENT_ID,
+  });
+
+  const profile = ticket.getPayload();
+
+  if (!profile?.email) {
+    throw new AppError(401, "Google did not share an email address for this account");
+  }
+
+  if (profile.email_verified !== true) {
+    throw new AppError(403, "This Google account does not have a verified email address");
+  }
+
+  const email = profile.email.toLowerCase();
+  const googleId = profile.sub;
+  const name = profile.name ?? email;
+
+  const existing = await prisma.user.findFirst({
+    where: { OR: [{ googleId }, { email }] },
+    select: { ...credentialsSelect, googleId: true },
+  });
+
+  if (!existing) {
+    const created = await prisma.user.create({
+      data: {
+        name,
+        email,
+        googleId,
+        role: "FARMER",
+        emailVerifiedAt: new Date(),
+      },
+      select: publicUserSelect,
+    });
+
+    return issueAuthResult(created, false);
+  }
+
+  if (existing.deletedAt !== null) {
+    throw new AppError(403, "This account has been deleted");
+  }
+
+  if (existing.status === "BANNED") {
+    throw new AppError(403, "This account has been banned. Contact support for help.");
+  }
+
+  if (existing.role !== "FARMER") {
+    throw new AppError(
+      403,
+      "Google sign-in is available to farmers only. Log in with your email and password instead.",
+    );
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: existing.id },
+    data: {
+      googleId,
+      emailVerifiedAt: existing.emailVerifiedAt ?? new Date(),
+    },
+    select: publicUserSelect,
+  });
+
+  return issueAuthResult(updated, false);
+};
+
 export const authService = {
   registerUserDb,
   loginUserDb,
   refreshTokensDb,
   verifyEmailOtpDb,
   resendEmailOtpDb,
+  setPasswordDb,
+  changePasswordDb,
+  createGoogleAuthUrl,
+  consumeGoogleState,
+  googleAuthDb,
 };

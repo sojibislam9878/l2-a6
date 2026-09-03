@@ -6,6 +6,7 @@ import { env } from "./config/env.js";
 import { globalErrorHandler } from "./middlewares/globalErrorHandler.js";
 import { notFound } from "./middlewares/notFound.js";
 import { authRoute } from "./modules/auth/auth.route.js";
+import { userRoute } from "./modules/user/user.route.js";
 
 export const app = express();
 
@@ -20,6 +21,7 @@ app.get("/", (_req, res) => {
 });
 
 app.use("/api/v1/auth", authRoute);
+app.use("/api/v1/users", userRoute);
 
 app.use(notFound);
 app.use(globalErrorHandler);

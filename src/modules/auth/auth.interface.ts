@@ -19,6 +19,8 @@ export type IPublicUser = {
   createdAt: Date;
 };
 
+export type GoogleAuthMode = "redirect" | "json";
+
 export type IAuthResult = {
   accessToken: string;
   refreshToken: string;

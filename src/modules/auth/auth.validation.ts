@@ -57,6 +57,32 @@ export const loginSchema = z.object({
     .strict(),
 });
 
+const strongPassword = z
+  .string({ error: "password is required" })
+  .min(8, { error: "password must be at least 8 characters" })
+  .max(72, { error: "password must be at most 72 characters" })
+  .regex(/[A-Za-z]/, { error: "password must contain at least one letter" })
+  .regex(/\d/, { error: "password must contain at least one number" });
+
+export const setPasswordSchema = z.object({
+  body: z
+    .object({
+      newPassword: strongPassword,
+    })
+    .strict(),
+});
+
+export const changePasswordSchema = z.object({
+  body: z
+    .object({
+      currentPassword: z.string({ error: "currentPassword is required" }).min(1, {
+        error: "currentPassword is required",
+      }),
+      newPassword: strongPassword,
+    })
+    .strict(),
+});
+
 export const verifyOtpSchema = z.object({
   body: z
     .object({

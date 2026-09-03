@@ -1,5 +1,5 @@
 import type { CookieOptions, Response } from "express";
-import { isProduction } from "../../config/env.js";
+import { env, isProduction } from "../../config/env.js";
 import { AppError } from "../../utils/AppError.js";
 import { catchAsync } from "../../utils/catchAsync.js";
 import { sendResponse } from "../../utils/sendResponse.js";
@@ -87,10 +87,97 @@ const refreshToken = catchAsync(async (req, res) => {
   });
 });
 
+const googleRedirect = catchAsync(async (req, res) => {
+  const mode = req.query.mode === "json" ? "json" : "redirect";
+  const url = await authService.createGoogleAuthUrl(mode);
+  res.redirect(url);
+});
+
+const googleCallback = catchAsync(async (req, res) => {
+  const state = typeof req.query.state === "string" ? req.query.state : "";
+  const code = typeof req.query.code === "string" ? req.query.code : "";
+  const denied = typeof req.query.error === "string" ? req.query.error : "";
+
+  const mode = state.length > 0 ? await authService.consumeGoogleState(state) : "redirect";
+
+  const fail = (status: number, message: string): void => {
+    if (mode === "json") {
+      res.status(status).json({ success: false, message, errors: [] });
+      return;
+    }
+    res.redirect(`${env.FRONTEND_URL}/?error=${encodeURIComponent(message)}`);
+  };
+
+  if (denied.length > 0) {
+    fail(401, `Google sign-in was cancelled (${denied})`);
+    return;
+  }
+
+  if (code.length === 0) {
+    fail(400, "Google did not return an authorization code");
+    return;
+  }
+
+  let result: Awaited<ReturnType<typeof authService.googleAuthDb>>;
+
+  try {
+    result = await authService.googleAuthDb(code);
+  } catch (error) {
+    const status = error instanceof AppError ? error.statusCode : 500;
+    const message = error instanceof Error ? error.message : "Google sign-in failed";
+    fail(status, message);
+    return;
+  }
+
+  setRefreshCookie(res, result.refreshToken);
+
+  if (mode === "json") {
+    sendResponse(res, {
+      statusCode: 200,
+      message: "Signed in with Google successfully",
+      data: { accessToken: result.accessToken, user: result.user },
+    });
+    return;
+  }
+
+  const params = new URLSearchParams({
+    accessToken: result.accessToken,
+    name: result.user.name,
+    email: result.user.email,
+    role: result.user.role,
+  });
+
+  res.redirect(`${env.FRONTEND_URL}/?${params.toString()}`);
+});
+
+const setPassword = catchAsync(async (req, res) => {
+  const { newPassword } = req.body as { newPassword: string };
+  await authService.setPasswordDb(req.user!.id, newPassword);
+
+  sendResponse(res, {
+    statusCode: 200,
+    message: 'Password set successfully. You can now log in with your email and password too.',
+  });
+});
+
+const changePassword = catchAsync(async (req, res) => {
+  const { currentPassword, newPassword } = req.body as {
+    currentPassword: string;
+    newPassword: string;
+  };
+  await authService.changePasswordDb(req.user!.id, currentPassword, newPassword);
+
+  sendResponse(res, { statusCode: 200, message: 'Password changed successfully' });
+});
+
 export const authController = {
   verifyOtp,
   resendOtp,
   signup,
   login,
   refreshToken,
+  setPassword,
+  changePassword,
+  googleRedirect,
+  googleCallback,
 };
