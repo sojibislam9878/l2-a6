@@ -9,24 +9,19 @@ import { consumeOtp, issueOtp } from "../../utils/otp.js";
 import { sendEmail } from "../../lib/mailer.js";
 import { GOOGLE_SCOPES, googleClient } from "../../lib/google.js";
 import { connectRedis, redis } from "../../lib/redis.js";
+import {
+  type IPublicUser,
+  type SelectedUser,
+  publicUserSelect,
+  toPublicUser,
+} from "../../utils/publicUser.js";
 import type {
   GoogleAuthMode,
   IAuthResult,
   ILoginPayload,
-  IPublicUser,
   ISignupPayload,
 } from "./auth.interface.js";
 import { SELF_SERVICE_ROLES } from "./auth.validation.js";
-
-export const publicUserSelect = {
-  id: true,
-  name: true,
-  email: true,
-  phone: true,
-  role: true,
-  status: true,
-  createdAt: true,
-} as const;
 
 const credentialsSelect = {
   ...publicUserSelect,
@@ -44,16 +39,6 @@ const deliverOtp = async (email: string, name: string): Promise<void> => {
   await sendEmail({ to: email, subject, html, text });
 };
 
-type SelectedUser = {
-  id: string;
-  name: string;
-  email: string;
-  phone: string | null;
-  role: IPublicUser["role"];
-  status: IPublicUser["status"];
-  createdAt: Date;
-};
-
 const INVALID_CREDENTIALS = "Invalid email or password";
 
 let decoyHash: string | null = null;
@@ -65,22 +50,14 @@ const equalizeTimingForMissingUser = async (): Promise<void> => {
   await bcrypt.compare(randomUUID(), decoyHash);
 };
 
-const hasCompleteProfile = (role: SelectedUser["role"], ownerProfileExists: boolean): boolean =>
-  role === "WAREHOUSE_OWNER" ? ownerProfileExists : true;
-
-const toPublicUser = (user: SelectedUser, ownerProfileExists: boolean): IPublicUser => ({
-  ...user,
-  profileComplete: hasCompleteProfile(user.role, ownerProfileExists),
-});
-
-const issueAuthResult = (user: SelectedUser, ownerProfileExists: boolean): IAuthResult => {
+const issueAuthResult = (user: SelectedUser): IAuthResult => {
   const { accessToken, refreshToken } = jwtUtils.createTokenPair({
     sub: user.id,
     email: user.email,
     role: user.role,
   });
 
-  return { accessToken, refreshToken, user: toPublicUser(user, ownerProfileExists) };
+  return { accessToken, refreshToken, user: toPublicUser(user) };
 };
 
 const registerUserDb = async (payload: ISignupPayload): Promise<IPublicUser> => {
@@ -114,7 +91,7 @@ const registerUserDb = async (payload: ISignupPayload): Promise<IPublicUser> => 
 
   await deliverOtp(user.email, user.name);
 
-  return toPublicUser(user, false);
+  return toPublicUser(user);
 };
 
 const verifyEmailOtpDb = async (rawEmail: string, code: string): Promise<IPublicUser> => {
@@ -142,7 +119,7 @@ const verifyEmailOtpDb = async (rawEmail: string, code: string): Promise<IPublic
     data: { emailVerifiedAt: new Date() },
   });
 
-  return toPublicUser(publicFields, false);
+  return toPublicUser(publicFields);
 };
 
 const resendEmailOtpDb = async (rawEmail: string): Promise<void> => {
@@ -205,7 +182,7 @@ const loginUserDb = async (payload: ILoginPayload): Promise<IAuthResult> => {
     ...publicFields
   } = user;
 
-  return issueAuthResult(publicFields, false);
+  return issueAuthResult(publicFields);
 };
 
 const refreshTokensDb = async (refreshToken: string): Promise<IAuthResult> => {
@@ -235,7 +212,7 @@ const refreshTokensDb = async (refreshToken: string): Promise<IAuthResult> => {
     ...publicFields
   } = user;
 
-  return issueAuthResult(publicFields, false);
+  return issueAuthResult(publicFields);
 };
 
 const setPasswordDb = async (userId: string, newPassword: string): Promise<void> => {
@@ -372,7 +349,7 @@ const googleAuthDb = async (code: string): Promise<IAuthResult> => {
       select: publicUserSelect,
     });
 
-    return issueAuthResult(created, false);
+    return issueAuthResult(created);
   }
 
   if (existing.deletedAt !== null) {
@@ -399,7 +376,7 @@ const googleAuthDb = async (code: string): Promise<IAuthResult> => {
     select: publicUserSelect,
   });
 
-  return issueAuthResult(updated, false);
+  return issueAuthResult(updated);
 };
 
 export const authService = {

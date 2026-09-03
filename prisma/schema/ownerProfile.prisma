@@ -1,0 +1,16 @@
+model OwnerProfile {
+  id             String   @id @default(uuid())
+  userId         String   @unique @map("user_id")
+  businessName   String   @map("business_name")
+  tradeLicenseNo String   @unique @map("trade_license_no")
+  nid            String   @unique
+  district       String
+  address        String
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([district])
+  @@map("owner_profiles")
+}

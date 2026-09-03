@@ -13,7 +13,7 @@ const getMeFromDb = async (userId: string): Promise<IPublicUser> => {
     throw new AppError(404, "Account not found");
   }
 
-  return toPublicUser(user, false);
+  return toPublicUser(user);
 };
 
 const updateMeDb = async (userId: string, payload: IUpdateMePayload): Promise<IPublicUser> => {
@@ -42,7 +42,7 @@ const updateMeDb = async (userId: string, payload: IUpdateMePayload): Promise<IP
     select: publicUserSelect,
   });
 
-  return toPublicUser(user, false);
+  return toPublicUser(user);
 };
 
 export const userService = {
