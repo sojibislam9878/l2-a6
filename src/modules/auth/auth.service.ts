@@ -3,7 +3,10 @@ import { randomUUID } from "node:crypto";
 import { env } from "../../config/env.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
+import { buildOtpEmail } from "../../utils/emailTemplates.js";
 import { jwtUtils } from "../../utils/jwt.js";
+import { consumeOtp, issueOtp } from "../../utils/otp.js";
+import { sendEmail } from "../../lib/mailer.js";
 import type { IAuthResult, ILoginPayload, IPublicUser, ISignupPayload } from "./auth.interface.js";
 import { SELF_SERVICE_ROLES } from "./auth.validation.js";
 
@@ -21,7 +24,17 @@ const credentialsSelect = {
   ...publicUserSelect,
   password: true,
   deletedAt: true,
+  emailVerifiedAt: true,
 } as const;
+
+const VERIFY_EMAIL_HINT =
+  "Email not verified. Submit the code sent to your email at POST /api/v1/auth/verify-otp";
+
+const deliverOtp = async (email: string, name: string): Promise<void> => {
+  const code = await issueOtp(email);
+  const { subject, html, text } = buildOtpEmail(name, code);
+  await sendEmail({ to: email, subject, html, text });
+};
 
 type SelectedUser = {
   id: string;
@@ -91,7 +104,56 @@ const registerUserDb = async (payload: ISignupPayload): Promise<IPublicUser> => 
     select: publicUserSelect,
   });
 
+  await deliverOtp(user.email, user.name);
+
   return toPublicUser(user, false);
+};
+
+const verifyEmailOtpDb = async (rawEmail: string, code: string): Promise<IPublicUser> => {
+  const email = rawEmail.toLowerCase();
+
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { ...publicUserSelect, deletedAt: true, emailVerifiedAt: true },
+  });
+
+  if (!user || user.deletedAt !== null) {
+    throw new AppError(404, "No account found for this email");
+  }
+
+  if (user.emailVerifiedAt !== null) {
+    throw new AppError(409, "This email is already verified. You can log in.");
+  }
+
+  await consumeOtp(email, code);
+
+  const { deletedAt: _deletedAt, emailVerifiedAt: _verifiedAt, ...publicFields } = user;
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { emailVerifiedAt: new Date() },
+  });
+
+  return toPublicUser(publicFields, false);
+};
+
+const resendEmailOtpDb = async (rawEmail: string): Promise<void> => {
+  const email = rawEmail.toLowerCase();
+
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { name: true, deletedAt: true, emailVerifiedAt: true },
+  });
+
+  if (!user || user.deletedAt !== null) {
+    return;
+  }
+
+  if (user.emailVerifiedAt !== null) {
+    return;
+  }
+
+  await deliverOtp(email, user.name);
 };
 
 const loginUserDb = async (payload: ILoginPayload): Promise<IAuthResult> => {
@@ -124,7 +186,16 @@ const loginUserDb = async (payload: ILoginPayload): Promise<IAuthResult> => {
     throw new AppError(403, "This account has been banned. Contact support for help.");
   }
 
-  const { password: _password, deletedAt: _deletedAt, ...publicFields } = user;
+  if (user.emailVerifiedAt === null) {
+    throw new AppError(403, VERIFY_EMAIL_HINT);
+  }
+
+  const {
+    password: _password,
+    deletedAt: _deletedAt,
+    emailVerifiedAt: _verifiedAt,
+    ...publicFields
+  } = user;
 
   return issueAuthResult(publicFields, false);
 };
@@ -145,7 +216,16 @@ const refreshTokensDb = async (refreshToken: string): Promise<IAuthResult> => {
     throw new AppError(403, "This account has been banned. Contact support for help.");
   }
 
-  const { password: _password, deletedAt: _deletedAt, ...publicFields } = user;
+  if (user.emailVerifiedAt === null) {
+    throw new AppError(403, VERIFY_EMAIL_HINT);
+  }
+
+  const {
+    password: _password,
+    deletedAt: _deletedAt,
+    emailVerifiedAt: _verifiedAt,
+    ...publicFields
+  } = user;
 
   return issueAuthResult(publicFields, false);
 };
@@ -154,4 +234,6 @@ export const authService = {
   registerUserDb,
   loginUserDb,
   refreshTokensDb,
+  verifyEmailOtpDb,
+  resendEmailOtpDb,
 };

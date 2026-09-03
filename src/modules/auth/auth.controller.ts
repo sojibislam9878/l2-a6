@@ -32,6 +32,27 @@ const signup = catchAsync(async (req, res) => {
   sendResponse(res, { statusCode: 201, message, data: user });
 });
 
+const verifyOtp = catchAsync(async (req, res) => {
+  const { email, otp } = req.body as { email: string; otp: string };
+  const user = await authService.verifyEmailOtpDb(email, otp);
+
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Email verified successfully. You can now log in.",
+    data: user,
+  });
+});
+
+const resendOtp = catchAsync(async (req, res) => {
+  const { email } = req.body as { email: string };
+  await authService.resendEmailOtpDb(email);
+
+  sendResponse(res, {
+    statusCode: 200,
+    message: "If that account exists and is unverified, a new code has been sent.",
+  });
+});
+
 const login = catchAsync(async (req, res) => {
   const { accessToken, refreshToken, user } = await authService.loginUserDb(
     req.body as ILoginPayload,
@@ -67,6 +88,8 @@ const refreshToken = catchAsync(async (req, res) => {
 });
 
 export const authController = {
+  verifyOtp,
+  resendOtp,
   signup,
   login,
   refreshToken,

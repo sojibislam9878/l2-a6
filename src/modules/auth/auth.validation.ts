@@ -57,6 +57,26 @@ export const loginSchema = z.object({
     .strict(),
 });
 
+export const verifyOtpSchema = z.object({
+  body: z
+    .object({
+      email: z.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
+      otp: z
+        .string({ error: "otp is required" })
+        .trim()
+        .regex(/^\d+$/, { error: "otp must contain digits only" }),
+    })
+    .strict(),
+});
+
+export const resendOtpSchema = z.object({
+  body: z
+    .object({
+      email: z.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
+    })
+    .strict(),
+});
+
 export const refreshTokenSchema = z.object({
   body: z
     .object({

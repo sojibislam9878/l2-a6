@@ -43,6 +43,14 @@ const envSchema = z
     DEMO_FX_RATE: z.coerce.number().positive().default(0.0085),
 
     REDIS_URL: required("REDIS_URL is empty — console.upstash.com → Connect → ioredis (rediss://…)"),
+
+    RESEND_API_KEY: required(
+      "RESEND_API_KEY is empty — resend.com → API Keys → Create (starts re_). OTP emails cannot be sent without it.",
+    ),
+    EMAIL_FROM: z.string().trim().min(1).default("AgroStore <onboarding@resend.dev>"),
+    OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),
+    OTP_EXPIRY_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+    OTP_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(5),
   })
   .superRefine((val, ctx) => {
     if (val.DATABASE_URL.includes("pooled.db.prisma.io")) {
