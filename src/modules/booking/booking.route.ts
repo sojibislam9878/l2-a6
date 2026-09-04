@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { auth } from "../../middlewares/auth.js";
 import { authorize } from "../../middlewares/authorize.js";
+import { bookingLimiter } from "../../middlewares/rateLimiter.js";
 import { requireCompleteProfile } from "../../middlewares/requireCompleteProfile.js";
 import { validateRequest } from "../../middlewares/validateRequest.js";
 import { bookingController } from "./booking.controller.js";
@@ -17,6 +18,7 @@ router.post(
   "/",
   auth,
   authorize("FARMER"),
+  bookingLimiter,
   validateRequest(createBookingSchema),
   bookingController.createBooking,
 );

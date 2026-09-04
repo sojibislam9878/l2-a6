@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { auth } from "../../middlewares/auth.js";
+import { authLimiter, otpLimiter } from "../../middlewares/rateLimiter.js";
 import { validateRequest } from "../../middlewares/validateRequest.js";
 import { authController } from "./auth.controller.js";
 import {
@@ -14,10 +15,10 @@ import {
 
 const router = Router();
 
-router.post("/signup", validateRequest(signupSchema), authController.signup);
-router.post("/verify-otp", validateRequest(verifyOtpSchema), authController.verifyOtp);
-router.post("/resend-otp", validateRequest(resendOtpSchema), authController.resendOtp);
-router.post("/login", validateRequest(loginSchema), authController.login);
+router.post("/signup", authLimiter, validateRequest(signupSchema), authController.signup);
+router.post("/verify-otp", otpLimiter, validateRequest(verifyOtpSchema), authController.verifyOtp);
+router.post("/resend-otp", otpLimiter, validateRequest(resendOtpSchema), authController.resendOtp);
+router.post("/login", authLimiter, validateRequest(loginSchema), authController.login);
 router.post("/refresh-token", validateRequest(refreshTokenSchema), authController.refreshToken);
 router.post("/logout", validateRequest(refreshTokenSchema), authController.logout);
 router.post("/set-password", auth, validateRequest(setPasswordSchema), authController.setPassword);

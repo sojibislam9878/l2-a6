@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { auth } from "../../middlewares/auth.js";
 import { authorize } from "../../middlewares/authorize.js";
+import { paymentLimiter } from "../../middlewares/rateLimiter.js";
 import { validateRequest } from "../../middlewares/validateRequest.js";
 import { paymentController } from "./payment.controller.js";
 import {
@@ -19,6 +20,7 @@ router.post(
   "/checkout-session",
   auth,
   authorize("FARMER"),
+  paymentLimiter,
   validateRequest(createCheckoutSessionSchema),
   paymentController.createCheckoutSession,
 );
