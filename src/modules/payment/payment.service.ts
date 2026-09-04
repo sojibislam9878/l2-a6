@@ -5,7 +5,7 @@ import { prisma } from "../../lib/prisma.js";
 import { stripe } from "../../lib/stripe.js";
 import { AppError } from "../../utils/AppError.js";
 import { writeAuditLog } from "../../utils/auditLogger.js";
-import { type PaginationMeta, buildMeta, buildPagination } from "../../utils/paginate.js";
+import { buildMeta, buildPagination, type PaginationMeta } from "../../utils/paginate.js";
 import type {
   ICheckoutSession,
   IPayment,
@@ -64,8 +64,7 @@ const toPayment = (row: RawPayment): IPayment => ({
   createdAt: row.createdAt,
 });
 
-const toUsdCents = (amountBdt: number): number =>
-  Math.round(amountBdt * env.DEMO_FX_RATE * 100);
+const toUsdCents = (amountBdt: number): number => Math.round(amountBdt * env.DEMO_FX_RATE * 100);
 
 const createCheckoutSessionDb = async (
   farmerId: string,

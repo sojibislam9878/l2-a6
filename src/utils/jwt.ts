@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
-import { env } from "../config/env.js";
 import type { Role } from "../../generated/prisma/client.js";
+import { env } from "../config/env.js";
 
 export type TokenSubject = {
   sub: string;

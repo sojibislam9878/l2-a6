@@ -4,21 +4,21 @@ import express from "express";
 import helmet from "helmet";
 import { env } from "./config/env.js";
 import { globalErrorHandler } from "./middlewares/globalErrorHandler.js";
-import { globalLimiter } from "./middlewares/rateLimiter.js";
 import { notFound } from "./middlewares/notFound.js";
-import { authRoute } from "./modules/auth/auth.route.js";
+import { globalLimiter } from "./middlewares/rateLimiter.js";
 import { adminRoute } from "./modules/admin/admin.route.js";
+import { authRoute } from "./modules/auth/auth.route.js";
 import { bookingRoute } from "./modules/booking/booking.route.js";
 import { chamberRoute, warehouseChamberRoute } from "./modules/chamber/chamber.route.js";
 import { cropTypeRoute } from "./modules/cropType/cropType.route.js";
+import { farmerRoute } from "./modules/farmer/farmer.route.js";
 import { inspectionRoute } from "./modules/inspection/inspection.route.js";
+import { ownerRoute } from "./modules/owner/owner.route.js";
 import { paymentController } from "./modules/payment/payment.controller.js";
 import { paymentRoute } from "./modules/payment/payment.route.js";
-import { farmerRoute } from "./modules/farmer/farmer.route.js";
 import { reviewRoute, warehouseReviewRoute } from "./modules/review/review.route.js";
-import { warehouseRoute } from "./modules/warehouse/warehouse.route.js";
-import { ownerRoute } from "./modules/owner/owner.route.js";
 import { userRoute } from "./modules/user/user.route.js";
+import { warehouseRoute } from "./modules/warehouse/warehouse.route.js";
 
 export const app = express();
 

@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { auth } from "../../middlewares/auth.js";
 import { authorize } from "../../middlewares/authorize.js";
+import { cacheResponse } from "../../middlewares/cache.js";
 import { validateRequest } from "../../middlewares/validateRequest.js";
+import { CACHE_TTL, cacheKeys } from "../../utils/cacheKeys.js";
 import { bookingController } from "../booking/booking.controller.js";
 import { listBookingsSchema } from "../booking/booking.validation.js";
 import { inspectionController } from "../inspection/inspection.controller.js";
@@ -20,7 +22,11 @@ const router = Router();
 
 router.use(auth, authorize("ADMIN"));
 
-router.get("/stats", adminController.getStats);
+router.get(
+  "/stats",
+  cacheResponse(CACHE_TTL.adminStats, () => cacheKeys.adminStats()),
+  adminController.getStats,
+);
 router.get("/bookings", validateRequest(listBookingsSchema), bookingController.getAllBookings);
 router.post(
   "/bookings/:id/inspection",

@@ -167,7 +167,7 @@ const setPassword = catchAsync(async (req, res) => {
 
   sendResponse(res, {
     statusCode: 200,
-    message: 'Password set successfully. You can now log in with your email and password too.',
+    message: "Password set successfully. You can now log in with your email and password too.",
   });
 });
 
@@ -178,7 +178,7 @@ const changePassword = catchAsync(async (req, res) => {
   };
   await authService.changePasswordDb(req.user!.id, currentPassword, newPassword);
 
-  sendResponse(res, { statusCode: 200, message: 'Password changed successfully' });
+  sendResponse(res, { statusCode: 200, message: "Password changed successfully" });
 });
 
 export const authController = {

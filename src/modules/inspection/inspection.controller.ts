@@ -1,10 +1,7 @@
 import { validatedQuery } from "../../middlewares/validateRequest.js";
 import { catchAsync } from "../../utils/catchAsync.js";
 import { sendResponse } from "../../utils/sendResponse.js";
-import type {
-  ICreateInspectionPayload,
-  IInspectionFilters,
-} from "./inspection.interface.js";
+import type { ICreateInspectionPayload, IInspectionFilters } from "./inspection.interface.js";
 import { inspectionService } from "./inspection.service.js";
 
 const createInspection = catchAsync(async (req, res) => {

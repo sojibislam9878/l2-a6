@@ -6,8 +6,18 @@ import { createOwnerProfileSchema, updateOwnerProfileSchema } from "./owner.vali
 
 const router = Router();
 
-router.post("/", auth, validateRequest(createOwnerProfileSchema), ownerController.createOwnerProfile);
+router.post(
+  "/",
+  auth,
+  validateRequest(createOwnerProfileSchema),
+  ownerController.createOwnerProfile,
+);
 router.get("/", auth, ownerController.getOwnerProfile);
-router.patch("/", auth, validateRequest(updateOwnerProfileSchema), ownerController.updateOwnerProfile);
+router.patch(
+  "/",
+  auth,
+  validateRequest(updateOwnerProfileSchema),
+  ownerController.updateOwnerProfile,
+);
 
 export const ownerRoute = router;

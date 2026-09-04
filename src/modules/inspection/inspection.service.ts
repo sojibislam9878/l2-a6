@@ -2,7 +2,7 @@ import type { Prisma } from "../../../generated/prisma/client.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
 import { writeAuditLog } from "../../utils/auditLogger.js";
-import { type PaginationMeta, buildMeta, buildPagination } from "../../utils/paginate.js";
+import { buildMeta, buildPagination, type PaginationMeta } from "../../utils/paginate.js";
 import { assertTransition } from "../../utils/stateMachine.js";
 import type {
   ICreateInspectionPayload,
@@ -180,7 +180,10 @@ const getInspectionsFromDb = async (
     prisma.inspection.count({ where }),
   ]);
 
-  return { data: rows.map(toInspection), meta: buildMeta(pagination.page, pagination.limit, total) };
+  return {
+    data: rows.map(toInspection),
+    meta: buildMeta(pagination.page, pagination.limit, total),
+  };
 };
 
 const getInspectionByIdFromDb = async (

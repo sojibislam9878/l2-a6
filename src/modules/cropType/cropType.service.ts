@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
+import { invalidateCropTypeCache } from "../../utils/cacheKeys.js";
 import type {
   ICreateCropTypePayload,
   ICropType,
@@ -69,6 +70,7 @@ const getCropTypeByIdFromDb = async (id: string): Promise<ICropType> => {
 
 const createCropTypeDb = async (payload: ICreateCropTypePayload): Promise<ICropType> => {
   const row = await prisma.cropType.create({ data: payload, select: cropTypeSelect });
+  await invalidateCropTypeCache();
   return toCropType(row);
 };
 
@@ -105,6 +107,7 @@ const updateCropTypeDb = async (
   if (payload.maxStorageDays !== undefined) data.maxStorageDays = payload.maxStorageDays;
 
   const row = await prisma.cropType.update({ where: { id }, data, select: cropTypeSelect });
+  await invalidateCropTypeCache();
   return toCropType(row);
 };
 
@@ -134,6 +137,7 @@ const softDeleteCropTypeDb = async (id: string): Promise<void> => {
   }
 
   await prisma.cropType.update({ where: { id }, data: { deletedAt: new Date() } });
+  await invalidateCropTypeCache();
 };
 
 export const cropTypeService = {

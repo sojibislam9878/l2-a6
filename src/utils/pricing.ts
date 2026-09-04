@@ -7,11 +7,8 @@ const round2 = (value: number): number => Math.round(value * 100) / 100;
 export const inclusiveDays = (start: Date, end: Date): number =>
   Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
 
-export const estimateCost = (
-  quantityKg: number,
-  ratePerKgPerDay: number,
-  days: number,
-): number => round2(quantityKg * ratePerKgPerDay * days);
+export const estimateCost = (quantityKg: number, ratePerKgPerDay: number, days: number): number =>
+  round2(quantityKg * ratePerKgPerDay * days);
 
 export type SettlementInput = {
   quantityKg: number;

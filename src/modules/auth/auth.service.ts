@@ -1,21 +1,21 @@
-import bcrypt from "bcrypt";
 import { randomUUID } from "node:crypto";
+import bcrypt from "bcrypt";
 import { env } from "../../config/env.js";
+import { GOOGLE_SCOPES, googleClient } from "../../lib/google.js";
+import { sendEmail } from "../../lib/mailer.js";
 import { prisma } from "../../lib/prisma.js";
+import { connectRedis, redis } from "../../lib/redis.js";
 import { AppError } from "../../utils/AppError.js";
 import { buildOtpEmail } from "../../utils/emailTemplates.js";
 import { jwtUtils } from "../../utils/jwt.js";
 import { consumeOtp, issueOtp } from "../../utils/otp.js";
-import { isJtiRevoked, revokeJti } from "../../utils/tokenDenylist.js";
-import { sendEmail } from "../../lib/mailer.js";
-import { GOOGLE_SCOPES, googleClient } from "../../lib/google.js";
-import { connectRedis, redis } from "../../lib/redis.js";
 import {
   type IPublicUser,
-  type SelectedUser,
   publicUserSelect,
+  type SelectedUser,
   toPublicUser,
 } from "../../utils/publicUser.js";
+import { isJtiRevoked, revokeJti } from "../../utils/tokenDenylist.js";
 import type {
   GoogleAuthMode,
   IAuthResult,

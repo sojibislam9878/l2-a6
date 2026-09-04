@@ -1,11 +1,6 @@
 import { z } from "zod";
 
-export const WAREHOUSE_SORT_FIELDS = [
-  "createdAt",
-  "name",
-  "ratePerKgPerDay",
-  "avgRating",
-] as const;
+export const WAREHOUSE_SORT_FIELDS = ["createdAt", "name", "ratePerKgPerDay", "avgRating"] as const;
 
 const name = z
   .string({ error: "name is required" })
@@ -59,7 +54,10 @@ export const listWarehousesSchema = z.object({
     })
     .strict()
     .refine(
-      (query) => query.minRate === undefined || query.maxRate === undefined || query.maxRate >= query.minRate,
+      (query) =>
+        query.minRate === undefined ||
+        query.maxRate === undefined ||
+        query.maxRate >= query.minRate,
       { error: "maxRate must be greater than or equal to minRate", path: ["maxRate"] },
     ),
 });
@@ -87,9 +85,11 @@ export const updateWarehouseSchema = z.object({
       licenseNo: licenseNo.optional(),
       ratePerKgPerDay: ratePerKgPerDay.optional(),
       minBookingDays: minBookingDays.optional(),
-      status: z.undefined({
-        error: "Warehouse status is set by an admin, not by the owner",
-      }).optional(),
+      status: z
+        .undefined({
+          error: "Warehouse status is set by an admin, not by the owner",
+        })
+        .optional(),
     })
     .strict()
     .refine((body) => Object.values(body).some((value) => value !== undefined), {

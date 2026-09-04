@@ -1,8 +1,8 @@
 import type { ErrorRequestHandler } from "express";
 import jwt from "jsonwebtoken";
 import { ZodError } from "zod";
-import { isProduction } from "../config/env.js";
 import { Prisma } from "../../generated/prisma/client.js";
+import { isProduction } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 
 type ErrorDetail = {

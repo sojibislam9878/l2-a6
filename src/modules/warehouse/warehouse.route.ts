@@ -1,8 +1,10 @@
 import { Router } from "express";
 import { auth } from "../../middlewares/auth.js";
 import { authorize } from "../../middlewares/authorize.js";
+import { cacheResponse, queryOf } from "../../middlewares/cache.js";
 import { requireCompleteProfile } from "../../middlewares/requireCompleteProfile.js";
 import { validateRequest } from "../../middlewares/validateRequest.js";
+import { CACHE_TTL, cacheKeys } from "../../utils/cacheKeys.js";
 import { bookingController } from "../booking/booking.controller.js";
 import { warehouseBookingsSchema } from "../booking/booking.validation.js";
 import { availabilityController } from "./availability.controller.js";
@@ -18,7 +20,12 @@ import {
 
 const router = Router();
 
-router.get("/", validateRequest(listWarehousesSchema), warehouseController.getWarehouses);
+router.get(
+  "/",
+  validateRequest(listWarehousesSchema),
+  cacheResponse(CACHE_TTL.warehouseList, (req) => cacheKeys.warehouseList(queryOf(req))),
+  warehouseController.getWarehouses,
+);
 
 router.get(
   "/me",
@@ -51,7 +58,14 @@ router.get(
   availabilityController.getWarehouseAvailability,
 );
 
-router.get("/:id", validateRequest(warehouseIdSchema), warehouseController.getWarehouseById);
+router.get(
+  "/:id",
+  validateRequest(warehouseIdSchema),
+  cacheResponse(CACHE_TTL.warehouseDetail, (req) =>
+    cacheKeys.warehouseDetail(String(req.params.id)),
+  ),
+  warehouseController.getWarehouseById,
+);
 
 router.patch(
   "/:id",

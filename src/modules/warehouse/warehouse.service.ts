@@ -1,7 +1,8 @@
 import type { Prisma } from "../../../generated/prisma/client.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
-import { type PaginationMeta, buildMeta, buildPagination } from "../../utils/paginate.js";
+import { invalidateWarehouseCache } from "../../utils/cacheKeys.js";
+import { buildMeta, buildPagination, type PaginationMeta } from "../../utils/paginate.js";
 import type {
   ICreateWarehousePayload,
   IMyWarehouseFilters,
@@ -229,12 +230,12 @@ const createWarehouseDb = async (
       address: payload.address,
       licenseNo: payload.licenseNo,
       ratePerKgPerDay: payload.ratePerKgPerDay,
-      ...(payload.minBookingDays === undefined
-        ? {}
-        : { minBookingDays: payload.minBookingDays }),
+      ...(payload.minBookingDays === undefined ? {} : { minBookingDays: payload.minBookingDays }),
     },
     select: { id: true },
   });
+
+  await invalidateWarehouseCache();
 
   return getWarehouseByIdFromDb(created.id);
 };
@@ -263,6 +264,7 @@ const updateWarehouseDb = async (
   if (payload.minBookingDays !== undefined) data.minBookingDays = payload.minBookingDays;
 
   await prisma.warehouse.update({ where: { id }, data });
+  await invalidateWarehouseCache(id);
 
   return getWarehouseByIdFromDb(id);
 };
@@ -291,6 +293,8 @@ const softDeleteWarehouseDb = async (id: string, ownerId: string): Promise<void>
     prisma.chamber.updateMany({ where: { warehouseId: id, deletedAt: null }, data: { deletedAt } }),
     prisma.warehouse.update({ where: { id }, data: { deletedAt } }),
   ]);
+
+  await invalidateWarehouseCache(id);
 };
 
 export const warehouseService = {

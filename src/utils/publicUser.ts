@@ -33,10 +33,8 @@ export type IPublicUser = {
   profileComplete: boolean;
 };
 
-export const isProfileComplete = (
-  role: Role,
-  ownerProfile: { id: string } | null,
-): boolean => role !== "WAREHOUSE_OWNER" || ownerProfile !== null;
+export const isProfileComplete = (role: Role, ownerProfile: { id: string } | null): boolean =>
+  role !== "WAREHOUSE_OWNER" || ownerProfile !== null;
 
 export const toPublicUser = (user: SelectedUser): IPublicUser => {
   const { ownerProfile, ...rest } = user;

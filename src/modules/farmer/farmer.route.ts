@@ -6,8 +6,18 @@ import { createFarmerProfileSchema, updateFarmerProfileSchema } from "./farmer.v
 
 const router = Router();
 
-router.post("/", auth, validateRequest(createFarmerProfileSchema), farmerController.createFarmerProfile);
+router.post(
+  "/",
+  auth,
+  validateRequest(createFarmerProfileSchema),
+  farmerController.createFarmerProfile,
+);
 router.get("/", auth, farmerController.getFarmerProfile);
-router.patch("/", auth, validateRequest(updateFarmerProfileSchema), farmerController.updateFarmerProfile);
+router.patch(
+  "/",
+  auth,
+  validateRequest(updateFarmerProfileSchema),
+  farmerController.updateFarmerProfile,
+);
 
 export const farmerRoute = router;

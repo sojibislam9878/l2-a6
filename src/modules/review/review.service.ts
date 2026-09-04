@@ -2,7 +2,8 @@ import type { Prisma } from "../../../generated/prisma/client.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
 import { writeAuditLog } from "../../utils/auditLogger.js";
-import { type PaginationMeta, buildMeta, buildPagination } from "../../utils/paginate.js";
+import { invalidateReviewCache } from "../../utils/cacheKeys.js";
+import { buildMeta, buildPagination, type PaginationMeta } from "../../utils/paginate.js";
 import type {
   ICreateReviewPayload,
   IReview,
@@ -112,7 +113,7 @@ const createReviewDb = async (
 
   const warehouseId = booking.chamber.warehouseId;
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const review =
       existing === null
         ? await tx.review.create({
@@ -148,6 +149,10 @@ const createReviewDb = async (
 
     return review;
   });
+
+  await invalidateReviewCache(warehouseId);
+
+  return created;
 };
 
 const updateReviewDb = async (
@@ -174,7 +179,7 @@ const updateReviewDb = async (
   if (payload.rating !== undefined) data.rating = payload.rating;
   if (payload.comment !== undefined) data.comment = payload.comment;
 
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     const review = await tx.review.update({
       where: { id: reviewId },
       data,
@@ -195,6 +200,10 @@ const updateReviewDb = async (
 
     return review;
   });
+
+  await invalidateReviewCache(existing.warehouseId);
+
+  return updated;
 };
 
 const softDeleteReviewDb = async (
@@ -232,6 +241,8 @@ const softDeleteReviewDb = async (
       ip,
     });
   });
+
+  await invalidateReviewCache(existing.warehouseId);
 };
 
 export const reviewService = {

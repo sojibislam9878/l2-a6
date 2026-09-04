@@ -18,8 +18,7 @@ const window = z
     path: ["endDate"],
   })
   .refine(
-    (query) =>
-      (query.endDate.getTime() - query.startDate.getTime()) / (24 * 60 * 60 * 1000) <= 365,
+    (query) => (query.endDate.getTime() - query.startDate.getTime()) / (24 * 60 * 60 * 1000) <= 365,
     { error: "the availability window cannot exceed 365 days", path: ["endDate"] },
   );
 

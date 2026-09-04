@@ -1,8 +1,5 @@
 import type { z } from "zod";
-import type {
-  createFarmerProfileSchema,
-  updateFarmerProfileSchema,
-} from "./farmer.validation.js";
+import type { createFarmerProfileSchema, updateFarmerProfileSchema } from "./farmer.validation.js";
 
 export type ICreateFarmerProfilePayload = z.infer<typeof createFarmerProfileSchema>["body"];
 

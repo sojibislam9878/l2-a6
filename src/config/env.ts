@@ -42,7 +42,9 @@ const envSchema = z
     STRIPE_WEBHOOK_SECRET: z.string().trim().default(""),
     DEMO_FX_RATE: z.coerce.number().positive().default(0.0085),
 
-    REDIS_URL: required("REDIS_URL is empty — console.upstash.com → Connect → ioredis (rediss://…)"),
+    REDIS_URL: required(
+      "REDIS_URL is empty — console.upstash.com → Connect → ioredis (rediss://…)",
+    ),
 
     RESEND_API_KEY: required(
       "RESEND_API_KEY is empty — resend.com → API Keys → Create (starts re_). OTP emails cannot be sent without it.",

@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
+import { invalidateWarehouseCache } from "../../utils/cacheKeys.js";
 import type {
   IChamber,
   IChamberFilters,
@@ -116,6 +117,8 @@ const createChamberDb = async (
     select: chamberSelect,
   });
 
+  await invalidateWarehouseCache(warehouseId);
+
   return toChamber(row);
 };
 
@@ -157,6 +160,7 @@ const updateChamberDb = async (
   if (payload.isActive !== undefined) data.isActive = payload.isActive;
 
   const row = await prisma.chamber.update({ where: { id }, data, select: chamberSelect });
+  await invalidateWarehouseCache(existing.warehouseId);
   return toChamber(row);
 };
 
@@ -188,6 +192,7 @@ const softDeleteChamberDb = async (id: string, ownerId: string): Promise<void> =
   }
 
   await prisma.chamber.update({ where: { id }, data: { deletedAt: new Date() } });
+  await invalidateWarehouseCache(existing.warehouseId);
 };
 
 export const chamberService = {

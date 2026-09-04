@@ -15,7 +15,13 @@ type Window = {
 const loadCropRange = async (cropTypeId: string) => {
   const crop = await prisma.cropType.findFirst({
     where: { id: cropTypeId, deletedAt: null },
-    select: { id: true, name: true, idealMinTempC: true, idealMaxTempC: true, maxStorageDays: true },
+    select: {
+      id: true,
+      name: true,
+      idealMinTempC: true,
+      idealMaxTempC: true,
+      maxStorageDays: true,
+    },
   });
 
   if (!crop) {
@@ -159,9 +165,8 @@ const getChamberAvailability = async (chamberId: string, window: Window) => {
 
   const crop = window.cropTypeId === undefined ? null : await loadCropRange(window.cropTypeId);
   const days = inclusiveDays(window.startDate, window.endDate);
-  const windows = (await competingBookings([chamberId], window.startDate, window.endDate)).get(
-    chamberId,
-  ) ?? [];
+  const windows =
+    (await competingBookings([chamberId], window.startDate, window.endDate)).get(chamberId) ?? [];
 
   const peakUsedKg = peakLoadKg(windows, window.startDate, window.endDate);
   const availableKg = Math.max(0, chamber.capacityKg - peakUsedKg);

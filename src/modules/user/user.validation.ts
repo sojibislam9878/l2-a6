@@ -28,9 +28,7 @@ export const updateMeSchema = z.object({
 
       role: z.undefined({ error: "Role cannot be changed through this endpoint" }).optional(),
 
-      status: z
-        .undefined({ error: "Account status can only be changed by an admin" })
-        .optional(),
+      status: z.undefined({ error: "Account status can only be changed by an admin" }).optional(),
     })
     .strict()
     .refine((body) => body.name !== undefined || body.phone !== undefined, {
@@ -41,7 +39,10 @@ export const updateMeSchema = z.object({
 export const deleteMeSchema = z.object({
   body: z
     .object({
-      password: z.string().min(1, { error: "password is required to delete your account" }).optional(),
+      password: z
+        .string()
+        .min(1, { error: "password is required to delete your account" })
+        .optional(),
     })
     .strict(),
 });

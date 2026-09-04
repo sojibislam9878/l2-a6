@@ -45,10 +45,7 @@ export const signupSchema = z.object({
 export const loginSchema = z.object({
   body: z
     .object({
-      email: z
-        .email({ error: "email must be a valid email address" })
-        .trim()
-        .toLowerCase(),
+      email: z.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
 
       password: z.string({ error: "password is required" }).min(1, {
         error: "password is required",

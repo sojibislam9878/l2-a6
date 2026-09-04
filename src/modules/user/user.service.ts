@@ -76,18 +76,20 @@ const deleteMeDb = async (userId: string, password: string | undefined): Promise
 
 const getDashboardFromDb = async (userId: string, role: string) => {
   if (role === "FARMER") {
-    const [totalBookings, activeBookings, completedBookings, payments, profile] = await Promise.all([
-      prisma.booking.count({ where: { farmerId: userId, deletedAt: null } }),
-      prisma.booking.count({
-        where: { farmerId: userId, deletedAt: null, status: { in: ["PAID", "STORED"] } },
-      }),
-      prisma.booking.count({ where: { farmerId: userId, deletedAt: null, status: "COMPLETED" } }),
-      prisma.payment.aggregate({
-        where: { farmerId: userId, status: "SUCCEEDED" },
-        _sum: { amountBdt: true },
-      }),
-      prisma.farmerProfile.findUnique({ where: { userId }, select: { id: true } }),
-    ]);
+    const [totalBookings, activeBookings, completedBookings, payments, profile] = await Promise.all(
+      [
+        prisma.booking.count({ where: { farmerId: userId, deletedAt: null } }),
+        prisma.booking.count({
+          where: { farmerId: userId, deletedAt: null, status: { in: ["PAID", "STORED"] } },
+        }),
+        prisma.booking.count({ where: { farmerId: userId, deletedAt: null, status: "COMPLETED" } }),
+        prisma.payment.aggregate({
+          where: { farmerId: userId, status: "SUCCEEDED" },
+          _sum: { amountBdt: true },
+        }),
+        prisma.farmerProfile.findUnique({ where: { userId }, select: { id: true } }),
+      ],
+    );
 
     return {
       role,

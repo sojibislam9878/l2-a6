@@ -58,10 +58,42 @@ const main = async (): Promise<void> => {
   });
 
   const farmerSeeds = [
-    { email: "farmer1@gmail.com", name: "Rahim Uddin", phone: "01711111111", district: "Rangpur", upazila: "Pirgacha", nid: "1990111122223", farmSizeAcre: 12.5 },
-    { email: "farmer2@gmail.com", name: "Karim Mia", phone: "01722222222", district: "Munshiganj", upazila: "Sreenagar", nid: "1988222233334", farmSizeAcre: 6 },
-    { email: "farmer3@gmail.com", name: "Sultana Begum", phone: "01733333333", district: "Bogura", upazila: "Shibganj", nid: "1995333344445", farmSizeAcre: 20 },
-    { email: "farmer4@gmail.com", name: "Jamal Hossain", phone: "01744444444", district: "Jashore", upazila: "Chougachha", nid: "1992444455556", farmSizeAcre: 4.5 },
+    {
+      email: "farmer1@gmail.com",
+      name: "Rahim Uddin",
+      phone: "01711111111",
+      district: "Rangpur",
+      upazila: "Pirgacha",
+      nid: "1990111122223",
+      farmSizeAcre: 12.5,
+    },
+    {
+      email: "farmer2@gmail.com",
+      name: "Karim Mia",
+      phone: "01722222222",
+      district: "Munshiganj",
+      upazila: "Sreenagar",
+      nid: "1988222233334",
+      farmSizeAcre: 6,
+    },
+    {
+      email: "farmer3@gmail.com",
+      name: "Sultana Begum",
+      phone: "01733333333",
+      district: "Bogura",
+      upazila: "Shibganj",
+      nid: "1995333344445",
+      farmSizeAcre: 20,
+    },
+    {
+      email: "farmer4@gmail.com",
+      name: "Jamal Hossain",
+      phone: "01744444444",
+      district: "Jashore",
+      upazila: "Chougachha",
+      nid: "1992444455556",
+      farmSizeAcre: 4.5,
+    },
   ];
 
   const farmers = [];
@@ -93,9 +125,36 @@ const main = async (): Promise<void> => {
   }
 
   const ownerSeeds = [
-    { email: "warehouse1@gmail.com", name: "Karim Cold Storage Ltd", phone: "01811111111", businessName: "Karim Cold Storage Ltd", tradeLicenseNo: "TL-RANG-1001", nid: "1980111100001", district: "Rangpur", address: "Station Road, Rangpur Sadar" },
-    { email: "warehouse2@gmail.com", name: "Bogura AgroChill", phone: "01822222222", businessName: "Bogura AgroChill", tradeLicenseNo: "TL-BOGU-2002", nid: "1982222200002", district: "Bogura", address: "Sherpur Road, Bogura" },
-    { email: "warehouse3@gmail.com", name: "Padma Cold Chain", phone: "01833333333", businessName: "Padma Cold Chain", tradeLicenseNo: "TL-MUNS-3003", nid: "1984333300003", district: "Munshiganj", address: "Mawa Ghat Road, Munshiganj" },
+    {
+      email: "warehouse1@gmail.com",
+      name: "Karim Cold Storage Ltd",
+      phone: "01811111111",
+      businessName: "Karim Cold Storage Ltd",
+      tradeLicenseNo: "TL-RANG-1001",
+      nid: "1980111100001",
+      district: "Rangpur",
+      address: "Station Road, Rangpur Sadar",
+    },
+    {
+      email: "warehouse2@gmail.com",
+      name: "Bogura AgroChill",
+      phone: "01822222222",
+      businessName: "Bogura AgroChill",
+      tradeLicenseNo: "TL-BOGU-2002",
+      nid: "1982222200002",
+      district: "Bogura",
+      address: "Sherpur Road, Bogura",
+    },
+    {
+      email: "warehouse3@gmail.com",
+      name: "Padma Cold Chain",
+      phone: "01833333333",
+      businessName: "Padma Cold Chain",
+      tradeLicenseNo: "TL-MUNS-3003",
+      nid: "1984333300003",
+      district: "Munshiganj",
+      address: "Mawa Ghat Road, Munshiganj",
+    },
   ];
 
   const owners = [];
@@ -137,7 +196,10 @@ const main = async (): Promise<void> => {
     { name: "Apple", idealMinTempC: 0, idealMaxTempC: 2, maxStorageDays: 240 },
   ];
 
-  const crops: Record<string, { id: string; minTempC: number; maxTempC: number; maxStorageDays: number }> = {};
+  const crops: Record<
+    string,
+    { id: string; minTempC: number; maxTempC: number; maxStorageDays: number }
+  > = {};
 
   for (const seed of cropSeeds) {
     const crop = await prisma.cropType.create({ data: seed });
@@ -234,7 +296,10 @@ const main = async (): Promise<void> => {
     },
   ];
 
-  const chambers: Record<string, { id: string; capacityKg: number; rate: number; minBookingDays: number }> = {};
+  const chambers: Record<
+    string,
+    { id: string; capacityKg: number; rate: number; minBookingDays: number }
+  > = {};
   const warehouseIds: string[] = [];
 
   for (const seed of warehouseSeeds) {
@@ -280,7 +345,16 @@ const main = async (): Promise<void> => {
     quantityKg: number;
     startOffset: number;
     endOffset: number;
-    status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "CANCELLED" | "PAID" | "STORED" | "WITHDRAW_REQUESTED" | "COMPLETED" | "EXPIRED";
+    status:
+      | "PENDING_APPROVAL"
+      | "APPROVED"
+      | "REJECTED"
+      | "CANCELLED"
+      | "PAID"
+      | "STORED"
+      | "WITHDRAW_REQUESTED"
+      | "COMPLETED"
+      | "EXPIRED";
     payment?: "PENDING" | "SUCCEEDED" | "REFUNDED";
     inspection?: { grade: "A" | "B" | "C" | "REJECTED"; moisturePct?: number; notes?: string };
     review?: { rating: number; comment: string };
@@ -288,23 +362,192 @@ const main = async (): Promise<void> => {
   };
 
   const bookingSeeds: BookingSeed[] = [
-    { chamber: "WL-RANG-0001/C-1", farmer: 0, crop: "Potato", quantityKg: 8000, startOffset: 5, endOffset: 65, status: "PENDING_APPROVAL" },
-    { chamber: "WL-RANG-0001/C-1", farmer: 1, crop: "Potato", quantityKg: 6000, startOffset: 8, endOffset: 70, status: "PENDING_APPROVAL" },
-    { chamber: "WL-RANG-0001/C-1", farmer: 2, crop: "Onion", quantityKg: 5000, startOffset: 3, endOffset: 45, status: "APPROVED" },
-    { chamber: "WL-RANG-0001/C-2", farmer: 0, crop: "Carrot", quantityKg: 4000, startOffset: 2, endOffset: 40, status: "PAID", payment: "SUCCEEDED" },
-    { chamber: "WL-RANG-0001/C-2", farmer: 1, crop: "Garlic", quantityKg: 3000, startOffset: -10, endOffset: 50, status: "STORED", payment: "SUCCEEDED", inspection: { grade: "A", moisturePct: 11.2, notes: "Well cured, no sprouting" } },
-    { chamber: "WL-RANG-0001/C-3", farmer: 2, crop: "Ginger", quantityKg: 2500, startOffset: -20, endOffset: 40, status: "WITHDRAW_REQUESTED", payment: "SUCCEEDED", inspection: { grade: "B", moisturePct: 14.8 } },
-    { chamber: "WL-RANG-0002/A-1", farmer: 0, crop: "Potato", quantityKg: 5000, startOffset: -70, endOffset: -40, status: "COMPLETED", payment: "SUCCEEDED", inspection: { grade: "A", moisturePct: 10.5 }, review: { rating: 5, comment: "Zero spoilage across the whole season. Staff were helpful at intake." } },
-    { chamber: "WL-RANG-0002/A-1", farmer: 1, crop: "Onion", quantityKg: 3500, startOffset: -80, endOffset: -50, status: "COMPLETED", payment: "SUCCEEDED", inspection: { grade: "B" }, review: { rating: 4, comment: "Good storage, but release paperwork took half a day." } },
-    { chamber: "WL-RANG-0002/A-2", farmer: 2, crop: "Onion", quantityKg: 4500, startOffset: 4, endOffset: 44, status: "PAID", payment: "SUCCEEDED" },
-    { chamber: "WL-BOGU-0003/B-1", farmer: 2, crop: "Cabbage", quantityKg: 9000, startOffset: -60, endOffset: -20, status: "COMPLETED", payment: "SUCCEEDED", inspection: { grade: "A" }, review: { rating: 5, comment: "Best rate in Bogura and the chamber held temperature perfectly." } },
-    { chamber: "WL-BOGU-0003/B-1", farmer: 0, crop: "Apple", quantityKg: 6000, startOffset: 6, endOffset: 66, status: "APPROVED" },
-    { chamber: "WL-BOGU-0003/B-2", farmer: 1, crop: "Tomato", quantityKg: 2000, startOffset: 5, endOffset: 25, status: "PAID", payment: "REFUNDED", inspection: { grade: "REJECTED", moisturePct: 22.4, notes: "Rot detected in 4 of 20 crates at intake" }, cancelReason: "Failed intake quality inspection" },
-    { chamber: "WL-MUNS-0005/P-1", farmer: 0, crop: "Potato", quantityKg: 20000, startOffset: 7, endOffset: 87, status: "PAID", payment: "SUCCEEDED" },
-    { chamber: "WL-MUNS-0005/P-2", farmer: 2, crop: "Garlic", quantityKg: 8000, startOffset: -30, endOffset: 30, status: "STORED", payment: "SUCCEEDED", inspection: { grade: "C", moisturePct: 16.9, notes: "Acceptable but monitor for sprouting" } },
-    { chamber: "WL-MUNS-0005/P-1", farmer: 1, crop: "Potato", quantityKg: 12000, startOffset: 10, endOffset: 70, status: "REJECTED", cancelReason: "Chamber committed to a bulk contract for that window" },
-    { chamber: "WL-RANG-0002/A-1", farmer: 3, crop: "Potato", quantityKg: 1500, startOffset: 12, endOffset: 42, status: "CANCELLED", cancelReason: "Farmer changed harvest plan" },
-    { chamber: "WL-BOGU-0003/B-1", farmer: 0, crop: "Cabbage", quantityKg: 4000, startOffset: 9, endOffset: 39, status: "EXPIRED" },
+    {
+      chamber: "WL-RANG-0001/C-1",
+      farmer: 0,
+      crop: "Potato",
+      quantityKg: 8000,
+      startOffset: 5,
+      endOffset: 65,
+      status: "PENDING_APPROVAL",
+    },
+    {
+      chamber: "WL-RANG-0001/C-1",
+      farmer: 1,
+      crop: "Potato",
+      quantityKg: 6000,
+      startOffset: 8,
+      endOffset: 70,
+      status: "PENDING_APPROVAL",
+    },
+    {
+      chamber: "WL-RANG-0001/C-1",
+      farmer: 2,
+      crop: "Onion",
+      quantityKg: 5000,
+      startOffset: 3,
+      endOffset: 45,
+      status: "APPROVED",
+    },
+    {
+      chamber: "WL-RANG-0001/C-2",
+      farmer: 0,
+      crop: "Carrot",
+      quantityKg: 4000,
+      startOffset: 2,
+      endOffset: 40,
+      status: "PAID",
+      payment: "SUCCEEDED",
+    },
+    {
+      chamber: "WL-RANG-0001/C-2",
+      farmer: 1,
+      crop: "Garlic",
+      quantityKg: 3000,
+      startOffset: -10,
+      endOffset: 50,
+      status: "STORED",
+      payment: "SUCCEEDED",
+      inspection: { grade: "A", moisturePct: 11.2, notes: "Well cured, no sprouting" },
+    },
+    {
+      chamber: "WL-RANG-0001/C-3",
+      farmer: 2,
+      crop: "Ginger",
+      quantityKg: 2500,
+      startOffset: -20,
+      endOffset: 40,
+      status: "WITHDRAW_REQUESTED",
+      payment: "SUCCEEDED",
+      inspection: { grade: "B", moisturePct: 14.8 },
+    },
+    {
+      chamber: "WL-RANG-0002/A-1",
+      farmer: 0,
+      crop: "Potato",
+      quantityKg: 5000,
+      startOffset: -70,
+      endOffset: -40,
+      status: "COMPLETED",
+      payment: "SUCCEEDED",
+      inspection: { grade: "A", moisturePct: 10.5 },
+      review: {
+        rating: 5,
+        comment: "Zero spoilage across the whole season. Staff were helpful at intake.",
+      },
+    },
+    {
+      chamber: "WL-RANG-0002/A-1",
+      farmer: 1,
+      crop: "Onion",
+      quantityKg: 3500,
+      startOffset: -80,
+      endOffset: -50,
+      status: "COMPLETED",
+      payment: "SUCCEEDED",
+      inspection: { grade: "B" },
+      review: { rating: 4, comment: "Good storage, but release paperwork took half a day." },
+    },
+    {
+      chamber: "WL-RANG-0002/A-2",
+      farmer: 2,
+      crop: "Onion",
+      quantityKg: 4500,
+      startOffset: 4,
+      endOffset: 44,
+      status: "PAID",
+      payment: "SUCCEEDED",
+    },
+    {
+      chamber: "WL-BOGU-0003/B-1",
+      farmer: 2,
+      crop: "Cabbage",
+      quantityKg: 9000,
+      startOffset: -60,
+      endOffset: -20,
+      status: "COMPLETED",
+      payment: "SUCCEEDED",
+      inspection: { grade: "A" },
+      review: {
+        rating: 5,
+        comment: "Best rate in Bogura and the chamber held temperature perfectly.",
+      },
+    },
+    {
+      chamber: "WL-BOGU-0003/B-1",
+      farmer: 0,
+      crop: "Apple",
+      quantityKg: 6000,
+      startOffset: 6,
+      endOffset: 66,
+      status: "APPROVED",
+    },
+    {
+      chamber: "WL-BOGU-0003/B-2",
+      farmer: 1,
+      crop: "Tomato",
+      quantityKg: 2000,
+      startOffset: 5,
+      endOffset: 25,
+      status: "PAID",
+      payment: "REFUNDED",
+      inspection: {
+        grade: "REJECTED",
+        moisturePct: 22.4,
+        notes: "Rot detected in 4 of 20 crates at intake",
+      },
+      cancelReason: "Failed intake quality inspection",
+    },
+    {
+      chamber: "WL-MUNS-0005/P-1",
+      farmer: 0,
+      crop: "Potato",
+      quantityKg: 20000,
+      startOffset: 7,
+      endOffset: 87,
+      status: "PAID",
+      payment: "SUCCEEDED",
+    },
+    {
+      chamber: "WL-MUNS-0005/P-2",
+      farmer: 2,
+      crop: "Garlic",
+      quantityKg: 8000,
+      startOffset: -30,
+      endOffset: 30,
+      status: "STORED",
+      payment: "SUCCEEDED",
+      inspection: { grade: "C", moisturePct: 16.9, notes: "Acceptable but monitor for sprouting" },
+    },
+    {
+      chamber: "WL-MUNS-0005/P-1",
+      farmer: 1,
+      crop: "Potato",
+      quantityKg: 12000,
+      startOffset: 10,
+      endOffset: 70,
+      status: "REJECTED",
+      cancelReason: "Chamber committed to a bulk contract for that window",
+    },
+    {
+      chamber: "WL-RANG-0002/A-1",
+      farmer: 3,
+      crop: "Potato",
+      quantityKg: 1500,
+      startOffset: 12,
+      endOffset: 42,
+      status: "CANCELLED",
+      cancelReason: "Farmer changed harvest plan",
+    },
+    {
+      chamber: "WL-BOGU-0003/B-1",
+      farmer: 0,
+      crop: "Cabbage",
+      quantityKg: 4000,
+      startOffset: 9,
+      endOffset: 39,
+      status: "EXPIRED",
+    },
   ];
 
   let paymentCount = 0;
@@ -318,7 +561,9 @@ const main = async (): Promise<void> => {
     const farmer = farmers[seed.farmer];
 
     if (chamber === undefined || crop === undefined || farmer === undefined) {
-      throw new Error(`Bad booking seed reference: ${seed.chamber} / ${seed.crop} / ${seed.farmer}`);
+      throw new Error(
+        `Bad booking seed reference: ${seed.chamber} / ${seed.crop} / ${seed.farmer}`,
+      );
     }
 
     const startDate = dayOffset(seed.startOffset);
@@ -326,7 +571,10 @@ const main = async (): Promise<void> => {
     const bookedDays = inclusiveDays(startDate, endDate);
     const estimatedCost = round2(seed.quantityKg * chamber.rate * bookedDays);
 
-    const isStored = seed.status === "STORED" || seed.status === "WITHDRAW_REQUESTED" || seed.status === "COMPLETED";
+    const isStored =
+      seed.status === "STORED" ||
+      seed.status === "WITHDRAW_REQUESTED" ||
+      seed.status === "COMPLETED";
     const storedAt = isStored ? startDate : null;
     const withdrawnAt = seed.status === "COMPLETED" ? endDate : null;
 
@@ -347,7 +595,10 @@ const main = async (): Promise<void> => {
         ratePerKgPerDay: chamber.rate,
         estimatedCost,
         finalCost,
-        status: seed.status === "PAID" && seed.inspection?.grade === "REJECTED" ? "CANCELLED" : seed.status,
+        status:
+          seed.status === "PAID" && seed.inspection?.grade === "REJECTED"
+            ? "CANCELLED"
+            : seed.status,
         holdExpiresAt: seed.status === "APPROVED" ? new Date(Date.now() + 30 * 60 * 1000) : null,
         storedAt,
         withdrawnAt,
@@ -374,7 +625,8 @@ const main = async (): Promise<void> => {
           paidAt: seed.payment === "PENDING" ? null : dayOffset(seed.startOffset - 1),
           refundedAt: seed.payment === "REFUNDED" ? dayOffset(seed.startOffset) : null,
           stripeSessionId: `cs_test_seed_${booking.id.slice(0, 12)}`,
-          stripePaymentIntentId: seed.payment === "PENDING" ? null : `pi_test_seed_${booking.id.slice(0, 12)}`,
+          stripePaymentIntentId:
+            seed.payment === "PENDING" ? null : `pi_test_seed_${booking.id.slice(0, 12)}`,
         },
       });
 

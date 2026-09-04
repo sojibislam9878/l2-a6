@@ -32,9 +32,7 @@ const address = z
   .max(255, { error: "address must be at most 255 characters" });
 
 export const createOwnerProfileSchema = z.object({
-  body: z
-    .object({ businessName, tradeLicenseNo, nid, district, address })
-    .strict(),
+  body: z.object({ businessName, tradeLicenseNo, nid, district, address }).strict(),
 });
 
 export const updateOwnerProfileSchema = z.object({

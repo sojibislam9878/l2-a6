@@ -40,7 +40,12 @@ const getAllBookings = catchAsync(async (_req, res) => {
   const filters = validatedQuery<IBookingFilters>(res);
   const { data, meta } = await bookingService.getAllBookingsFromDb(filters);
 
-  sendResponse(res, { statusCode: 200, message: "All bookings retrieved successfully", data, meta });
+  sendResponse(res, {
+    statusCode: 200,
+    message: "All bookings retrieved successfully",
+    data,
+    meta,
+  });
 });
 
 const getBookingById = catchAsync(async (req, res) => {
@@ -106,7 +111,11 @@ const storeBooking = catchAsync(async (req, res) => {
 });
 
 const requestWithdrawal = catchAsync(async (req, res) => {
-  const data = await bookingService.requestWithdrawalDb(String(req.params.id), actorOf(req), req.ip);
+  const data = await bookingService.requestWithdrawalDb(
+    String(req.params.id),
+    actorOf(req),
+    req.ip,
+  );
 
   sendResponse(res, {
     statusCode: 200,

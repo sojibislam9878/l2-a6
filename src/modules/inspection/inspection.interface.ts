@@ -1,9 +1,6 @@
 import type { z } from "zod";
 import type { QualityGrade, Role } from "../../../generated/prisma/client.js";
-import type {
-  createInspectionSchema,
-  listInspectionsSchema,
-} from "./inspection.validation.js";
+import type { createInspectionSchema, listInspectionsSchema } from "./inspection.validation.js";
 
 export type ICreateInspectionPayload = z.infer<typeof createInspectionSchema>["body"];
 

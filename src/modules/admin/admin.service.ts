@@ -2,7 +2,8 @@ import type { Prisma } from "../../../generated/prisma/client.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
 import { writeAuditLog } from "../../utils/auditLogger.js";
-import { type PaginationMeta, buildMeta, buildPagination } from "../../utils/paginate.js";
+import { invalidateWarehouseCache } from "../../utils/cacheKeys.js";
+import { buildMeta, buildPagination, type PaginationMeta } from "../../utils/paginate.js";
 import type {
   IAdminUser,
   IAdminUserDetail,
@@ -80,7 +81,7 @@ const updateWarehouseStatusDb = async (
     throw new AppError(409, `This warehouse is already ${payload.status}`);
   }
 
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     const next = await tx.warehouse.update({
       where: { id: warehouseId },
       data: { status: payload.status },
@@ -99,6 +100,10 @@ const updateWarehouseStatusDb = async (
 
     return next;
   });
+
+  await invalidateWarehouseCache(warehouseId);
+
+  return updated;
 };
 
 const getUsersFromDb = async (
@@ -172,7 +177,10 @@ const getUserByIdFromDb = async (id: string): Promise<IAdminUserDetail> => {
   const { farmerProfile, ownerProfile, _count, ...base } = row;
 
   return {
-    ...toAdminUser({ ...base, ownerProfile: ownerProfile === null ? null : { id: ownerProfile.id } }),
+    ...toAdminUser({
+      ...base,
+      ownerProfile: ownerProfile === null ? null : { id: ownerProfile.id },
+    }),
     farmerProfile:
       farmerProfile === null
         ? null

@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { auth } from "../../middlewares/auth.js";
 import { authorize } from "../../middlewares/authorize.js";
+import { cacheResponse, queryOf } from "../../middlewares/cache.js";
 import { validateRequest } from "../../middlewares/validateRequest.js";
+import { CACHE_TTL, cacheKeys } from "../../utils/cacheKeys.js";
 import { cropTypeController } from "./cropType.controller.js";
 import {
   createCropTypeSchema,
@@ -12,7 +14,12 @@ import {
 
 const router = Router();
 
-router.get("/", validateRequest(listCropTypesSchema), cropTypeController.getCropTypes);
+router.get(
+  "/",
+  validateRequest(listCropTypesSchema),
+  cacheResponse(CACHE_TTL.cropTypes, (req) => cacheKeys.cropTypes(queryOf(req))),
+  cropTypeController.getCropTypes,
+);
 router.get("/:id", validateRequest(cropTypeIdSchema), cropTypeController.getCropTypeById);
 
 router.post(

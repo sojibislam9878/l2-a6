@@ -4,7 +4,7 @@ import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
 import { writeAuditLog } from "../../utils/auditLogger.js";
 import { peakLoadKg } from "../../utils/capacity.js";
-import { type PaginationMeta, buildMeta, buildPagination } from "../../utils/paginate.js";
+import { buildMeta, buildPagination, type PaginationMeta } from "../../utils/paginate.js";
 import { estimateCost, inclusiveDays, settleBooking } from "../../utils/pricing.js";
 import { ACTIVE_BOOKING_STATUSES, assertTransition } from "../../utils/stateMachine.js";
 import type {
@@ -181,7 +181,13 @@ const createBookingDb = async (
 
   const cropType = await prisma.cropType.findFirst({
     where: { id: cropTypeId, deletedAt: null },
-    select: { id: true, name: true, idealMinTempC: true, idealMaxTempC: true, maxStorageDays: true },
+    select: {
+      id: true,
+      name: true,
+      idealMinTempC: true,
+      idealMaxTempC: true,
+      maxStorageDays: true,
+    },
   });
 
   if (!cropType) {
@@ -498,14 +504,7 @@ const storeBookingDb = async (
     );
   }
 
-  return transition(
-    booking,
-    "STORED",
-    actor.id,
-    "BOOKING_STORED",
-    { storedAt: new Date() },
-    ip,
-  );
+  return transition(booking, "STORED", actor.id, "BOOKING_STORED", { storedAt: new Date() }, ip);
 };
 
 const requestWithdrawalDb = async (
@@ -575,10 +574,19 @@ const getBookingInvoiceFromDb = async (bookingId: string, actor: IActor) => {
 
   const payment = await prisma.payment.findUnique({
     where: { bookingId },
-    select: { id: true, status: true, amountBdt: true, amount: true, currency: true, fxRate: true, paidAt: true },
+    select: {
+      id: true,
+      status: true,
+      amountBdt: true,
+      amount: true,
+      currency: true,
+      fxRate: true,
+      paidAt: true,
+    },
   });
 
-  const paidBdt = payment !== null && payment.status === "SUCCEEDED" ? Number(payment.amountBdt) : 0;
+  const paidBdt =
+    payment !== null && payment.status === "SUCCEEDED" ? Number(payment.amountBdt) : 0;
   const bookedDays = inclusiveDays(booking.startDate, booking.endDate);
   const storedAt = booking.storedAt;
   const endedAt = booking.withdrawnAt ?? new Date();

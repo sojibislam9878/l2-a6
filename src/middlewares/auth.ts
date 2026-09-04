@@ -11,7 +11,10 @@ export const auth: RequestHandler = catchAsync(async (req, _res, next) => {
   const header = req.headers.authorization;
 
   if (header === undefined || !header.startsWith(BEARER_PREFIX)) {
-    throw new AppError(401, "Authentication required. Send an Authorization: Bearer <token> header.");
+    throw new AppError(
+      401,
+      "Authentication required. Send an Authorization: Bearer <token> header.",
+    );
   }
 
   const token = header.slice(BEARER_PREFIX.length).trim();

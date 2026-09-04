@@ -45,7 +45,9 @@ var envSchema = z.object({
   ),
   STRIPE_WEBHOOK_SECRET: z.string().trim().default(""),
   DEMO_FX_RATE: z.coerce.number().positive().default(85e-4),
-  REDIS_URL: required("REDIS_URL is empty \u2014 console.upstash.com \u2192 Connect \u2192 ioredis (rediss://\u2026)"),
+  REDIS_URL: required(
+    "REDIS_URL is empty \u2014 console.upstash.com \u2192 Connect \u2192 ioredis (rediss://\u2026)"
+  ),
   RESEND_API_KEY: required(
     "RESEND_API_KEY is empty \u2014 resend.com \u2192 API Keys \u2192 Create (starts re_). OTP emails cannot be sent without it."
   ),
@@ -507,7 +509,97 @@ var notFound = (req, res) => {
   });
 };
 
-// src/modules/auth/auth.route.ts
+// src/middlewares/rateLimiter.ts
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
+import { RedisStore } from "rate-limit-redis";
+
+// src/lib/redis.ts
+import { Redis } from "ioredis";
+var redis = new Redis(env.REDIS_URL, {
+  maxRetriesPerRequest: 2,
+  enableOfflineQueue: false,
+  lazyConnect: true
+});
+var connecting = null;
+var connectRedis = async () => {
+  if (redis.status === "ready") return;
+  if (connecting === null) {
+    connecting = redis.connect().catch((error) => {
+      connecting = null;
+      throw error;
+    });
+  }
+  await connecting;
+};
+redis.on("error", (error) => {
+  console.error("Redis error:", error.message);
+});
+
+// src/middlewares/rateLimiter.ts
+var MINUTE = 60 * 1e3;
+var FIFTEEN_MINUTES = 15 * MINUTE;
+var createStore = (prefix) => new RedisStore({
+  prefix: `ratelimit:${prefix}:`,
+  sendCommand: async (...args) => {
+    await connectRedis();
+    const [command, ...rest] = args;
+    return redis.call(command, ...rest);
+  }
+});
+var perUserKey = (req) => req.user?.id ?? ipKeyGenerator(req.ip ?? "unknown");
+var buildLimiter = (config2) => rateLimit({
+  windowMs: config2.windowMs,
+  limit: config2.limit,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  passOnStoreError: true,
+  store: createStore(config2.prefix),
+  ...config2.perUser ? { keyGenerator: perUserKey } : {},
+  handler: (_req, res, _next, options) => {
+    res.status(options.statusCode).json({
+      success: false,
+      message: `${config2.message} Limit is ${config2.limit} request(s) per ${Math.round(options.windowMs / MINUTE)} minute(s).`,
+      errors: []
+    });
+  }
+});
+var globalLimiter = buildLimiter({
+  prefix: "global",
+  windowMs: FIFTEEN_MINUTES,
+  limit: 300,
+  message: "Too many requests from this address.",
+  perUser: false
+});
+var authLimiter = buildLimiter({
+  prefix: "auth",
+  windowMs: FIFTEEN_MINUTES,
+  limit: 10,
+  message: "Too many authentication attempts from this address.",
+  perUser: false
+});
+var otpLimiter = buildLimiter({
+  prefix: "otp",
+  windowMs: FIFTEEN_MINUTES,
+  limit: 6,
+  message: "Too many verification code requests from this address.",
+  perUser: false
+});
+var bookingLimiter = buildLimiter({
+  prefix: "booking",
+  windowMs: MINUTE,
+  limit: 10,
+  message: "Too many booking attempts.",
+  perUser: true
+});
+var paymentLimiter = buildLimiter({
+  prefix: "payment",
+  windowMs: FIFTEEN_MINUTES,
+  limit: 20,
+  message: "Too many payment session requests.",
+  perUser: true
+});
+
+// src/modules/admin/admin.route.ts
 import { Router } from "express";
 
 // src/lib/prisma.ts
@@ -543,28 +635,6 @@ var jwtUtils = {
   verifyRefreshToken
 };
 
-// src/lib/redis.ts
-import { Redis } from "ioredis";
-var redis = new Redis(env.REDIS_URL, {
-  maxRetriesPerRequest: 2,
-  enableOfflineQueue: false,
-  lazyConnect: true
-});
-var connecting = null;
-var connectRedis = async () => {
-  if (redis.status === "ready") return;
-  if (connecting === null) {
-    connecting = redis.connect().catch((error) => {
-      connecting = null;
-      throw error;
-    });
-  }
-  await connecting;
-};
-redis.on("error", (error) => {
-  console.error("Redis error:", error.message);
-});
-
 // src/utils/tokenDenylist.ts
 var revokedKey = (jti) => `revoked:jti:${jti}`;
 var revokeJti = async (jti, expiresAtEpochSeconds) => {
@@ -591,7 +661,10 @@ var BEARER_PREFIX = "Bearer ";
 var auth = catchAsync(async (req, _res, next) => {
   const header = req.headers.authorization;
   if (header === void 0 || !header.startsWith(BEARER_PREFIX)) {
-    throw new AppError(401, "Authentication required. Send an Authorization: Bearer <token> header.");
+    throw new AppError(
+      401,
+      "Authentication required. Send an Authorization: Bearer <token> header."
+    );
   }
   const token = header.slice(BEARER_PREFIX.length).trim();
   if (token.length === 0) {
@@ -615,6 +688,63 @@ var auth = catchAsync(async (req, _res, next) => {
   next();
 });
 
+// src/middlewares/authorize.ts
+var authorize = (...allowed) => (req, _res, next) => {
+  const current = req.user;
+  if (current === void 0) {
+    next(new AppError(401, "Authentication required"));
+    return;
+  }
+  if (!allowed.includes(current.role)) {
+    next(new AppError(403, `This action is restricted to: ${allowed.join(", ")}`));
+    return;
+  }
+  next();
+};
+
+// src/middlewares/cache.ts
+var cacheResponse = (ttlSeconds, buildKey) => {
+  return (req, res, next) => {
+    let key;
+    try {
+      key = buildKey(req);
+    } catch {
+      next();
+      return;
+    }
+    void (async () => {
+      try {
+        await connectRedis();
+        const cached = await redis.get(key);
+        if (cached !== null) {
+          res.setHeader("X-Cache", "HIT");
+          res.type("application/json").send(cached);
+          return;
+        }
+        res.setHeader("X-Cache", "MISS");
+        const sendJson = res.json.bind(res);
+        res.json = ((body) => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            void redis.set(key, JSON.stringify(body), "EX", ttlSeconds).catch(() => void 0);
+          }
+          return sendJson(body);
+        });
+        next();
+      } catch (error) {
+        const reason2 = error instanceof Error ? error.message : String(error);
+        console.error(`Cache bypassed, Redis unreachable: ${reason2}`);
+        res.setHeader("X-Cache", "BYPASS");
+        next();
+      }
+    })();
+  };
+};
+var queryOf = (req) => {
+  const url = req.originalUrl;
+  const index = url.indexOf("?");
+  return index === -1 ? "" : url.slice(index + 1);
+};
+
 // src/middlewares/validateRequest.ts
 var validateRequest = (schema) => (req, res, next) => {
   const result = schema.safeParse({
@@ -635,6 +765,58 @@ var validateRequest = (schema) => (req, res, next) => {
 };
 var validatedQuery = (res) => res.locals.validated?.query ?? {};
 
+// src/utils/cacheKeys.ts
+import { createHash } from "crypto";
+var fingerprint = (value) => createHash("sha1").update(value).digest("hex").slice(0, 16);
+var CACHE_TTL = {
+  cropTypes: 24 * 60 * 60,
+  warehouseList: 60,
+  warehouseDetail: 5 * 60,
+  warehouseReviews: 5 * 60,
+  adminStats: 5 * 60
+};
+var cacheKeys = {
+  cropTypes: (query) => `cache:croptypes:${fingerprint(query)}`,
+  warehouseList: (query) => `cache:warehouse:list:${fingerprint(query)}`,
+  warehouseDetail: (id) => `cache:warehouse:detail:${id}`,
+  warehouseReviews: (id, query) => `cache:warehouse:reviews:${id}:${fingerprint(query)}`,
+  adminStats: () => "cache:admin:stats"
+};
+var deleteByPattern = async (pattern) => {
+  let cursor = "0";
+  let removed = 0;
+  do {
+    const [next, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 200);
+    cursor = next;
+    if (keys.length > 0) {
+      removed += await redis.del(...keys);
+    }
+  } while (cursor !== "0");
+  return removed;
+};
+var safeInvalidate = async (patterns) => {
+  try {
+    await connectRedis();
+    for (const pattern of patterns) {
+      await deleteByPattern(pattern);
+    }
+  } catch (error) {
+    const reason2 = error instanceof Error ? error.message : String(error);
+    console.error(`Cache invalidation skipped, Redis unreachable: ${reason2}`);
+  }
+};
+var invalidateCropTypeCache = () => safeInvalidate(["cache:croptypes:*", "cache:warehouse:list:*"]);
+var invalidateWarehouseCache = (warehouseId) => safeInvalidate([
+  "cache:warehouse:list:*",
+  warehouseId === void 0 ? "cache:warehouse:detail:*" : `cache:warehouse:detail:${warehouseId}`,
+  "cache:admin:stats"
+]);
+var invalidateReviewCache = (warehouseId) => safeInvalidate([
+  `cache:warehouse:reviews:${warehouseId}:*`,
+  `cache:warehouse:detail:${warehouseId}`,
+  "cache:warehouse:list:*"
+]);
+
 // src/utils/sendResponse.ts
 var sendResponse = (res, payload) => {
   const body = {
@@ -650,9 +832,1549 @@ var sendResponse = (res, payload) => {
   res.status(payload.statusCode).json(body);
 };
 
+// src/modules/booking/booking.service.ts
+import { randomBytes } from "crypto";
+
+// src/utils/auditLogger.ts
+var writeAuditLog = async (client, entry) => {
+  await client.auditLog.create({
+    data: {
+      actorId: entry.actorId,
+      action: entry.action,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      ...entry.before === void 0 ? {} : { before: entry.before },
+      ...entry.after === void 0 ? {} : { after: entry.after },
+      ...entry.ip === void 0 ? {} : { ip: entry.ip }
+    }
+  });
+};
+
+// src/utils/capacity.ts
+var DAY_MS = 24 * 60 * 60 * 1e3;
+var peakLoadKg = (bookings, from, to) => {
+  const events = [];
+  for (const booking of bookings) {
+    const start = Math.max(booking.startDate.getTime(), from.getTime());
+    const end = Math.min(booking.endDate.getTime(), to.getTime());
+    if (start > end) {
+      continue;
+    }
+    events.push({ at: start, delta: booking.quantityKg });
+    events.push({ at: end + DAY_MS, delta: -booking.quantityKg });
+  }
+  events.sort((a, b) => a.at - b.at || a.delta - b.delta);
+  let running = 0;
+  let peak = 0;
+  for (const event of events) {
+    running += event.delta;
+    if (running > peak) {
+      peak = running;
+    }
+  }
+  return peak;
+};
+var dailyLoad = (capacityKg2, bookings, from, to) => {
+  const days = [];
+  for (let cursor = from.getTime(); cursor <= to.getTime(); cursor += DAY_MS) {
+    let usedKg = 0;
+    for (const booking of bookings) {
+      if (booking.startDate.getTime() <= cursor && booking.endDate.getTime() >= cursor) {
+        usedKg += booking.quantityKg;
+      }
+    }
+    days.push({
+      date: new Date(cursor).toISOString().slice(0, 10),
+      usedKg,
+      freeKg: Math.max(0, capacityKg2 - usedKg)
+    });
+  }
+  return days;
+};
+
+// src/utils/paginate.ts
+var buildPagination = (input, allowedSortFields, defaultSortBy) => {
+  const page = input.page ?? 1;
+  const limit = input.limit ?? 10;
+  const sortBy = input.sortBy !== void 0 && allowedSortFields.includes(input.sortBy) ? input.sortBy : defaultSortBy;
+  const sortOrder = input.sortOrder ?? "desc";
+  return {
+    skip: (page - 1) * limit,
+    take: limit,
+    page,
+    limit,
+    orderBy: { [sortBy]: sortOrder }
+  };
+};
+var buildMeta = (page, limit, total) => ({
+  page,
+  limit,
+  total,
+  totalPages: total === 0 ? 0 : Math.ceil(total / limit)
+});
+
+// src/utils/pricing.ts
+var DAY_MS2 = 24 * 60 * 60 * 1e3;
+var OVERSTAY_SURCHARGE_MULTIPLIER = 0.5;
+var round2 = (value) => Math.round(value * 100) / 100;
+var inclusiveDays = (start, end) => Math.floor((end.getTime() - start.getTime()) / DAY_MS2) + 1;
+var estimateCost = (quantityKg, ratePerKgPerDay2, days) => round2(quantityKg * ratePerKgPerDay2 * days);
+var settleBooking = (input) => {
+  const billableDays = Math.max(input.actualDays, input.minBookingDays);
+  const baseCost = round2(input.quantityKg * input.ratePerKgPerDay * billableDays);
+  const overstayDays = Math.max(0, input.actualDays - input.bookedDays);
+  const surcharge = round2(
+    input.quantityKg * input.ratePerKgPerDay * overstayDays * OVERSTAY_SURCHARGE_MULTIPLIER
+  );
+  const finalCost = round2(baseCost + surcharge);
+  return {
+    billableDays,
+    baseCost,
+    overstayDays,
+    surcharge,
+    finalCost,
+    balance: round2(finalCost - input.alreadyPaidBdt)
+  };
+};
+
+// src/utils/stateMachine.ts
+var ALLOWED_TRANSITIONS = {
+  PENDING_APPROVAL: ["APPROVED", "REJECTED", "CANCELLED"],
+  APPROVED: ["PAID", "EXPIRED", "CANCELLED"],
+  PAID: ["STORED", "CANCELLED"],
+  STORED: ["WITHDRAW_REQUESTED"],
+  WITHDRAW_REQUESTED: ["COMPLETED"],
+  COMPLETED: [],
+  REJECTED: [],
+  CANCELLED: [],
+  EXPIRED: []
+};
+var canTransition = (from, to) => ALLOWED_TRANSITIONS[from].includes(to);
+var assertTransition = (from, to) => {
+  if (canTransition(from, to)) {
+    return;
+  }
+  const allowed = ALLOWED_TRANSITIONS[from];
+  const detail = allowed.length === 0 ? `${from} is a final state` : `from ${from} you can only move to ${allowed.join(", ")}`;
+  throw new AppError(409, `Cannot move this booking from ${from} to ${to} - ${detail}`);
+};
+var ACTIVE_BOOKING_STATUSES = [
+  "PENDING_APPROVAL",
+  "APPROVED",
+  "PAID",
+  "STORED",
+  "WITHDRAW_REQUESTED"
+];
+
+// src/modules/booking/booking.validation.ts
+import { z as z2 } from "zod";
+var BOOKING_SORT_FIELDS = ["createdAt", "startDate", "endDate", "quantityKg"];
+var BOOKING_STATUSES = [
+  "PENDING_APPROVAL",
+  "APPROVED",
+  "REJECTED",
+  "CANCELLED",
+  "PAID",
+  "STORED",
+  "WITHDRAW_REQUESTED",
+  "COMPLETED",
+  "EXPIRED"
+];
+var isoDate = z2.string({ error: "date is required" }).regex(/^\d{4}-\d{2}-\d{2}$/, { error: "date must be in YYYY-MM-DD format" }).transform((value) => /* @__PURE__ */ new Date(`${value}T00:00:00.000Z`)).refine((date) => !Number.isNaN(date.getTime()), { error: "date is not a real calendar date" });
+var reason = z2.string().trim().min(3, { error: "reason must be at least 3 characters" }).max(255, { error: "reason must be at most 255 characters" });
+var createBookingSchema = z2.object({
+  body: z2.object({
+    chamberId: z2.uuid({ error: "chamberId must be a valid uuid" }),
+    cropTypeId: z2.uuid({ error: "cropTypeId must be a valid uuid" }),
+    quantityKg: z2.coerce.number({ error: "quantityKg must be a number" }).int({ error: "quantityKg must be a whole number" }).positive({ error: "quantityKg must be greater than zero" }).max(1e7, { error: "quantityKg is unrealistically large" }),
+    startDate: isoDate,
+    endDate: isoDate
+  }).strict().refine((body) => body.endDate.getTime() >= body.startDate.getTime(), {
+    error: "endDate must be on or after startDate",
+    path: ["endDate"]
+  })
+});
+var listBookingsSchema = z2.object({
+  query: z2.object({
+    status: z2.enum(BOOKING_STATUSES).optional(),
+    sortBy: z2.enum(BOOKING_SORT_FIELDS).optional(),
+    sortOrder: z2.enum(["asc", "desc"]).optional(),
+    page: z2.coerce.number().int().positive().optional(),
+    limit: z2.coerce.number().int().positive().max(100).optional()
+  }).strict()
+});
+var warehouseBookingsSchema = z2.object({
+  params: z2.object({ id: z2.uuid({ error: "id must be a valid uuid" }) }),
+  query: z2.object({
+    status: z2.enum(BOOKING_STATUSES).optional(),
+    sortBy: z2.enum(BOOKING_SORT_FIELDS).optional(),
+    sortOrder: z2.enum(["asc", "desc"]).optional(),
+    page: z2.coerce.number().int().positive().optional(),
+    limit: z2.coerce.number().int().positive().max(100).optional()
+  }).strict()
+});
+var bookingIdSchema = z2.object({
+  params: z2.object({ id: z2.uuid({ error: "id must be a valid uuid" }) })
+});
+var bookingReasonSchema = z2.object({
+  params: z2.object({ id: z2.uuid({ error: "id must be a valid uuid" }) }),
+  body: z2.object({ reason: reason.optional() }).strict()
+});
+
+// src/modules/booking/booking.service.ts
+var HOLD_MINUTES = 30;
+var MAX_ADVANCE_DAYS = 90;
+var bookingSelect = {
+  id: true,
+  lotCode: true,
+  status: true,
+  quantityKg: true,
+  startDate: true,
+  endDate: true,
+  ratePerKgPerDay: true,
+  estimatedCost: true,
+  finalCost: true,
+  holdExpiresAt: true,
+  storedAt: true,
+  withdrawnAt: true,
+  cancelReason: true,
+  createdAt: true,
+  cropType: { select: { id: true, name: true } },
+  farmer: { select: { id: true, name: true, phone: true } },
+  chamber: {
+    select: {
+      id: true,
+      name: true,
+      minTempC: true,
+      maxTempC: true,
+      warehouse: { select: { id: true, name: true, district: true, ownerId: true } }
+    }
+  }
+};
+var toBooking = (row) => ({
+  id: row.id,
+  lotCode: row.lotCode,
+  status: row.status,
+  quantityKg: row.quantityKg,
+  startDate: row.startDate,
+  endDate: row.endDate,
+  bookedDays: inclusiveDays(row.startDate, row.endDate),
+  ratePerKgPerDay: Number(row.ratePerKgPerDay),
+  estimatedCost: Number(row.estimatedCost),
+  finalCost: row.finalCost === null ? null : Number(row.finalCost),
+  holdExpiresAt: row.holdExpiresAt,
+  storedAt: row.storedAt,
+  withdrawnAt: row.withdrawnAt,
+  cancelReason: row.cancelReason,
+  createdAt: row.createdAt,
+  cropType: row.cropType,
+  chamber: {
+    id: row.chamber.id,
+    name: row.chamber.name,
+    minTempC: Number(row.chamber.minTempC),
+    maxTempC: Number(row.chamber.maxTempC)
+  },
+  warehouse: {
+    id: row.chamber.warehouse.id,
+    name: row.chamber.warehouse.name,
+    district: row.chamber.warehouse.district
+  },
+  farmer: row.farmer
+});
+var generateLotCode = () => `AS-${(/* @__PURE__ */ new Date()).getUTCFullYear()}-${randomBytes(4).toString("hex").toUpperCase().slice(0, 6)}`;
+var startOfToday = () => {
+  const now = /* @__PURE__ */ new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+};
+var expireStaleHolds = async (tx, chamberId) => {
+  await tx.booking.updateMany({
+    where: {
+      chamberId,
+      deletedAt: null,
+      status: "APPROVED",
+      holdExpiresAt: { lt: /* @__PURE__ */ new Date() }
+    },
+    data: { status: "EXPIRED" }
+  });
+};
+var createBookingDb = async (farmerId, payload, ip) => {
+  const { chamberId, cropTypeId, quantityKg, startDate, endDate } = payload;
+  const today = startOfToday();
+  const latestStart = new Date(today.getTime() + MAX_ADVANCE_DAYS * 24 * 60 * 60 * 1e3);
+  if (startDate < today) {
+    throw new AppError(422, "startDate cannot be in the past");
+  }
+  if (startDate > latestStart) {
+    throw new AppError(422, `startDate cannot be more than ${MAX_ADVANCE_DAYS} days ahead`);
+  }
+  const chamber = await prisma.chamber.findFirst({
+    where: { id: chamberId, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      capacityKg: true,
+      minTempC: true,
+      maxTempC: true,
+      isActive: true,
+      warehouse: {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          deletedAt: true,
+          minBookingDays: true,
+          ratePerKgPerDay: true
+        }
+      }
+    }
+  });
+  if (!chamber || chamber.warehouse.deletedAt !== null) {
+    throw new AppError(404, "Chamber not found");
+  }
+  if (!chamber.isActive) {
+    throw new AppError(409, "This chamber is not accepting lots right now");
+  }
+  if (chamber.warehouse.status !== "APPROVED") {
+    throw new AppError(
+      409,
+      `This warehouse is ${chamber.warehouse.status} and cannot accept bookings yet`
+    );
+  }
+  const cropType = await prisma.cropType.findFirst({
+    where: { id: cropTypeId, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      idealMinTempC: true,
+      idealMaxTempC: true,
+      maxStorageDays: true
+    }
+  });
+  if (!cropType) {
+    throw new AppError(404, "Crop type not found");
+  }
+  const cropMin = Number(cropType.idealMinTempC);
+  const cropMax = Number(cropType.idealMaxTempC);
+  const chamberMin = Number(chamber.minTempC);
+  const chamberMax = Number(chamber.maxTempC);
+  if (chamberMin > cropMin || chamberMax < cropMax) {
+    throw new AppError(
+      422,
+      `${cropType.name} needs ${cropMin} to ${cropMax}C, but chamber ${chamber.name} runs ${chamberMin} to ${chamberMax}C`
+    );
+  }
+  const days = inclusiveDays(startDate, endDate);
+  if (days < chamber.warehouse.minBookingDays) {
+    throw new AppError(
+      422,
+      `This warehouse requires a minimum booking of ${chamber.warehouse.minBookingDays} days, you requested ${days}`
+    );
+  }
+  if (days > cropType.maxStorageDays) {
+    throw new AppError(
+      422,
+      `${cropType.name} can be stored for at most ${cropType.maxStorageDays} days, you requested ${days}`
+    );
+  }
+  const rate = Number(chamber.warehouse.ratePerKgPerDay);
+  const estimate = estimateCost(quantityKg, rate, days);
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM chambers WHERE id = ${chamberId} FOR UPDATE`;
+    await expireStaleHolds(tx, chamberId);
+    const competing = await tx.booking.findMany({
+      where: {
+        chamberId,
+        deletedAt: null,
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+        status: { in: ACTIVE_BOOKING_STATUSES }
+      },
+      select: { startDate: true, endDate: true, quantityKg: true }
+    });
+    const peak = peakLoadKg(competing, startDate, endDate);
+    const free = chamber.capacityKg - peak;
+    if (quantityKg > free) {
+      throw new AppError(
+        409,
+        `Only ${free}kg is available in chamber ${chamber.name} between ${startDate.toISOString().slice(0, 10)} and ${endDate.toISOString().slice(0, 10)}`
+      );
+    }
+    const created = await tx.booking.create({
+      data: {
+        lotCode: generateLotCode(),
+        farmerId,
+        chamberId,
+        cropTypeId,
+        quantityKg,
+        startDate,
+        endDate,
+        ratePerKgPerDay: rate,
+        estimatedCost: estimate
+      },
+      select: bookingSelect
+    });
+    await writeAuditLog(tx, {
+      actorId: farmerId,
+      action: "BOOKING_CREATED",
+      entityType: "Booking",
+      entityId: created.id,
+      after: { lotCode: created.lotCode, quantityKg, status: created.status },
+      ip
+    });
+    return toBooking(created);
+  });
+};
+var loadBookingForActor = async (bookingId, actor) => {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, deletedAt: null },
+    select: bookingSelect
+  });
+  if (!booking) {
+    throw new AppError(404, "Booking not found");
+  }
+  const isFarmer = booking.farmer.id === actor.id;
+  const isOwner = booking.chamber.warehouse.ownerId === actor.id;
+  const isAdmin = actor.role === "ADMIN";
+  if (!isFarmer && !isOwner && !isAdmin) {
+    throw new AppError(403, "You do not have access to this booking");
+  }
+  return booking;
+};
+var getBookingByIdFromDb = async (bookingId, actor) => toBooking(await loadBookingForActor(bookingId, actor));
+var getMyBookingsFromDb = async (farmerId, filters) => {
+  const pagination = buildPagination(filters, BOOKING_SORT_FIELDS, "createdAt");
+  const where = {
+    farmerId,
+    deletedAt: null,
+    ...filters.status === void 0 ? {} : { status: filters.status }
+  };
+  const [rows, total] = await Promise.all([
+    prisma.booking.findMany({
+      where,
+      select: bookingSelect,
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.booking.count({ where })
+  ]);
+  return { data: rows.map(toBooking), meta: buildMeta(pagination.page, pagination.limit, total) };
+};
+var getAllBookingsFromDb = async (filters) => {
+  const pagination = buildPagination(filters, BOOKING_SORT_FIELDS, "createdAt");
+  const where = {
+    deletedAt: null,
+    ...filters.status === void 0 ? {} : { status: filters.status }
+  };
+  const [rows, total] = await Promise.all([
+    prisma.booking.findMany({
+      where,
+      select: bookingSelect,
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.booking.count({ where })
+  ]);
+  return { data: rows.map(toBooking), meta: buildMeta(pagination.page, pagination.limit, total) };
+};
+var getWarehouseBookingsFromDb = async (warehouseId, ownerId, filters) => {
+  const warehouse = await prisma.warehouse.findFirst({
+    where: { id: warehouseId, deletedAt: null },
+    select: { ownerId: true }
+  });
+  if (!warehouse) {
+    throw new AppError(404, "Warehouse not found");
+  }
+  if (warehouse.ownerId !== ownerId) {
+    throw new AppError(403, "You can only view bookings for warehouses that belong to you");
+  }
+  const pagination = buildPagination(filters, BOOKING_SORT_FIELDS, "createdAt");
+  const where = {
+    deletedAt: null,
+    chamber: { warehouseId },
+    ...filters.status === void 0 ? {} : { status: filters.status }
+  };
+  const [rows, total] = await Promise.all([
+    prisma.booking.findMany({
+      where,
+      select: bookingSelect,
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.booking.count({ where })
+  ]);
+  return { data: rows.map(toBooking), meta: buildMeta(pagination.page, pagination.limit, total) };
+};
+var assertWarehouseOwner = (booking, actorId) => {
+  if (booking.chamber.warehouse.ownerId !== actorId) {
+    throw new AppError(403, "You can only manage bookings for warehouses that belong to you");
+  }
+};
+var transition = async (booking, next, actorId, action, extraData, ip) => {
+  assertTransition(booking.status, next);
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.booking.update({
+      where: { id: booking.id },
+      data: { status: next, ...extraData },
+      select: bookingSelect
+    });
+    await writeAuditLog(tx, {
+      actorId,
+      action,
+      entityType: "Booking",
+      entityId: booking.id,
+      before: { status: booking.status },
+      after: { status: updated.status },
+      ip
+    });
+    return toBooking(updated);
+  });
+};
+var approveBookingDb = async (bookingId, actor, ip) => {
+  const booking = await loadBookingForActor(bookingId, actor);
+  assertWarehouseOwner(booking, actor.id);
+  const holdExpiresAt = new Date(Date.now() + HOLD_MINUTES * 60 * 1e3);
+  return transition(booking, "APPROVED", actor.id, "BOOKING_APPROVED", { holdExpiresAt }, ip);
+};
+var rejectBookingDb = async (bookingId, actor, reason2, ip) => {
+  const booking = await loadBookingForActor(bookingId, actor);
+  assertWarehouseOwner(booking, actor.id);
+  return transition(
+    booking,
+    "REJECTED",
+    actor.id,
+    "BOOKING_REJECTED",
+    { cancelReason: reason2 ?? null },
+    ip
+  );
+};
+var cancelBookingDb = async (bookingId, actor, reason2, ip) => {
+  const booking = await loadBookingForActor(bookingId, actor);
+  if (booking.farmer.id !== actor.id) {
+    throw new AppError(403, "Only the farmer who created this booking can cancel it");
+  }
+  return transition(
+    booking,
+    "CANCELLED",
+    actor.id,
+    "BOOKING_CANCELLED",
+    { cancelReason: reason2 ?? null },
+    ip
+  );
+};
+var storeBookingDb = async (bookingId, actor, ip) => {
+  const booking = await loadBookingForActor(bookingId, actor);
+  assertWarehouseOwner(booking, actor.id);
+  const inspection = await prisma.inspection.findUnique({
+    where: { bookingId },
+    select: { grade: true }
+  });
+  if (inspection?.grade === "REJECTED") {
+    throw new AppError(
+      409,
+      "This lot failed quality inspection and cannot be stored. Cancel and refund it instead."
+    );
+  }
+  return transition(booking, "STORED", actor.id, "BOOKING_STORED", { storedAt: /* @__PURE__ */ new Date() }, ip);
+};
+var requestWithdrawalDb = async (bookingId, actor, ip) => {
+  const booking = await loadBookingForActor(bookingId, actor);
+  if (booking.farmer.id !== actor.id) {
+    throw new AppError(403, "Only the farmer who owns this lot can request withdrawal");
+  }
+  return transition(booking, "WITHDRAW_REQUESTED", actor.id, "BOOKING_WITHDRAW_REQUESTED", {}, ip);
+};
+var completeBookingDb = async (bookingId, actor, ip) => {
+  const booking = await loadBookingForActor(bookingId, actor);
+  assertWarehouseOwner(booking, actor.id);
+  const warehouse = await prisma.warehouse.findUniqueOrThrow({
+    where: { id: booking.chamber.warehouse.id },
+    select: { minBookingDays: true }
+  });
+  const payment = await prisma.payment.findUnique({
+    where: { bookingId },
+    select: { amountBdt: true, status: true }
+  });
+  const alreadyPaidBdt = payment !== null && payment.status === "SUCCEEDED" ? Number(payment.amountBdt) : 0;
+  const withdrawnAt = /* @__PURE__ */ new Date();
+  const storedAt = booking.storedAt ?? booking.startDate;
+  const settlement = settleBooking({
+    quantityKg: booking.quantityKg,
+    ratePerKgPerDay: Number(booking.ratePerKgPerDay),
+    bookedDays: inclusiveDays(booking.startDate, booking.endDate),
+    actualDays: Math.max(1, inclusiveDays(storedAt, withdrawnAt)),
+    minBookingDays: warehouse.minBookingDays,
+    alreadyPaidBdt
+  });
+  return transition(
+    booking,
+    "COMPLETED",
+    actor.id,
+    "BOOKING_COMPLETED",
+    { withdrawnAt, finalCost: settlement.finalCost },
+    ip
+  );
+};
+var getBookingInvoiceFromDb = async (bookingId, actor) => {
+  const booking = await loadBookingForActor(bookingId, actor);
+  const warehouse = await prisma.warehouse.findUniqueOrThrow({
+    where: { id: booking.chamber.warehouse.id },
+    select: { minBookingDays: true }
+  });
+  const payment = await prisma.payment.findUnique({
+    where: { bookingId },
+    select: {
+      id: true,
+      status: true,
+      amountBdt: true,
+      amount: true,
+      currency: true,
+      fxRate: true,
+      paidAt: true
+    }
+  });
+  const paidBdt = payment !== null && payment.status === "SUCCEEDED" ? Number(payment.amountBdt) : 0;
+  const bookedDays = inclusiveDays(booking.startDate, booking.endDate);
+  const storedAt = booking.storedAt;
+  const endedAt = booking.withdrawnAt ?? /* @__PURE__ */ new Date();
+  const actualDays = storedAt === null ? null : Math.max(1, inclusiveDays(storedAt, endedAt));
+  const settlement = actualDays === null ? null : settleBooking({
+    quantityKg: booking.quantityKg,
+    ratePerKgPerDay: Number(booking.ratePerKgPerDay),
+    bookedDays,
+    actualDays,
+    minBookingDays: warehouse.minBookingDays,
+    alreadyPaidBdt: paidBdt
+  });
+  return {
+    booking: toBooking(booking),
+    charges: {
+      quantityKg: booking.quantityKg,
+      ratePerKgPerDay: Number(booking.ratePerKgPerDay),
+      bookedDays,
+      minBookingDays: warehouse.minBookingDays,
+      estimatedCostBdt: Number(booking.estimatedCost),
+      actualDaysStored: actualDays,
+      settlement,
+      finalCostBdt: booking.finalCost === null ? null : Number(booking.finalCost)
+    },
+    payment: payment === null ? null : {
+      id: payment.id,
+      status: payment.status,
+      amountBdt: Number(payment.amountBdt),
+      amountCharged: Number(payment.amount),
+      currency: payment.currency,
+      fxRate: Number(payment.fxRate),
+      paidAt: payment.paidAt
+    },
+    balanceBdt: (() => {
+      if (booking.finalCost !== null) {
+        return Number(booking.finalCost) - paidBdt;
+      }
+      if (settlement !== null) {
+        return settlement.balance;
+      }
+      return Number(booking.estimatedCost) - paidBdt;
+    })()
+  };
+};
+var bookingService = {
+  getBookingInvoiceFromDb,
+  createBookingDb,
+  getBookingByIdFromDb,
+  getMyBookingsFromDb,
+  getAllBookingsFromDb,
+  getWarehouseBookingsFromDb,
+  approveBookingDb,
+  rejectBookingDb,
+  cancelBookingDb,
+  storeBookingDb,
+  requestWithdrawalDb,
+  completeBookingDb
+};
+
+// src/modules/booking/booking.controller.ts
+var actorOf = (req) => ({
+  id: req.user.id,
+  role: req.user.role
+});
+var createBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.createBookingDb(
+    req.user.id,
+    req.body,
+    req.ip
+  );
+  sendResponse(res, {
+    statusCode: 201,
+    message: "Booking created. The warehouse owner must approve it before payment.",
+    data
+  });
+});
+var getMyBookings = catchAsync(async (req, res) => {
+  const filters = validatedQuery(res);
+  const { data, meta } = await bookingService.getMyBookingsFromDb(req.user.id, filters);
+  sendResponse(res, { statusCode: 200, message: "Bookings retrieved successfully", data, meta });
+});
+var getAllBookings = catchAsync(async (_req, res) => {
+  const filters = validatedQuery(res);
+  const { data, meta } = await bookingService.getAllBookingsFromDb(filters);
+  sendResponse(res, {
+    statusCode: 200,
+    message: "All bookings retrieved successfully",
+    data,
+    meta
+  });
+});
+var getBookingById = catchAsync(async (req, res) => {
+  const data = await bookingService.getBookingByIdFromDb(String(req.params.id), actorOf(req));
+  sendResponse(res, { statusCode: 200, message: "Booking retrieved successfully", data });
+});
+var getWarehouseBookings = catchAsync(async (req, res) => {
+  const filters = validatedQuery(res);
+  const { data, meta } = await bookingService.getWarehouseBookingsFromDb(
+    String(req.params.id),
+    req.user.id,
+    filters
+  );
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Warehouse bookings retrieved successfully",
+    data,
+    meta
+  });
+});
+var approveBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.approveBookingDb(String(req.params.id), actorOf(req), req.ip);
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Booking approved. The farmer must pay before the hold expires.",
+    data
+  });
+});
+var rejectBooking = catchAsync(async (req, res) => {
+  const { reason: reason2 } = req.body;
+  const data = await bookingService.rejectBookingDb(
+    String(req.params.id),
+    actorOf(req),
+    reason2,
+    req.ip
+  );
+  sendResponse(res, { statusCode: 200, message: "Booking rejected", data });
+});
+var cancelBooking = catchAsync(async (req, res) => {
+  const { reason: reason2 } = req.body;
+  const data = await bookingService.cancelBookingDb(
+    String(req.params.id),
+    actorOf(req),
+    reason2,
+    req.ip
+  );
+  sendResponse(res, { statusCode: 200, message: "Booking cancelled", data });
+});
+var storeBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.storeBookingDb(String(req.params.id), actorOf(req), req.ip);
+  sendResponse(res, { statusCode: 200, message: "Lot marked as stored", data });
+});
+var requestWithdrawal = catchAsync(async (req, res) => {
+  const data = await bookingService.requestWithdrawalDb(
+    String(req.params.id),
+    actorOf(req),
+    req.ip
+  );
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Withdrawal requested. The warehouse owner will confirm release.",
+    data
+  });
+});
+var completeBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.completeBookingDb(String(req.params.id), actorOf(req), req.ip);
+  sendResponse(res, {
+    statusCode: 200,
+    message: `Lot released. Final cost is ${data.finalCost} BDT.`,
+    data
+  });
+});
+var getBookingInvoice = catchAsync(async (req, res) => {
+  const data = await bookingService.getBookingInvoiceFromDb(String(req.params.id), actorOf(req));
+  sendResponse(res, { statusCode: 200, message: "Invoice retrieved successfully", data });
+});
+var bookingController = {
+  getBookingInvoice,
+  createBooking,
+  getMyBookings,
+  getAllBookings,
+  getBookingById,
+  getWarehouseBookings,
+  approveBooking,
+  rejectBooking,
+  cancelBooking,
+  storeBooking,
+  requestWithdrawal,
+  completeBooking
+};
+
+// src/modules/inspection/inspection.service.ts
+var inspectionSelect = {
+  id: true,
+  grade: true,
+  moisturePct: true,
+  actualQtyKg: true,
+  notes: true,
+  inspectedAt: true,
+  inspector: { select: { id: true, name: true } },
+  booking: {
+    select: {
+      id: true,
+      lotCode: true,
+      status: true,
+      quantityKg: true,
+      farmer: { select: { id: true, name: true } },
+      chamber: {
+        select: { warehouse: { select: { id: true, name: true, ownerId: true } } }
+      }
+    }
+  }
+};
+var toInspection = (row) => ({
+  id: row.id,
+  grade: row.grade,
+  moisturePct: row.moisturePct === null ? null : Number(row.moisturePct),
+  actualQtyKg: row.actualQtyKg,
+  notes: row.notes,
+  inspectedAt: row.inspectedAt,
+  inspector: row.inspector,
+  booking: {
+    id: row.booking.id,
+    lotCode: row.booking.lotCode,
+    status: row.booking.status,
+    quantityKg: row.booking.quantityKg,
+    farmer: row.booking.farmer,
+    warehouse: {
+      id: row.booking.chamber.warehouse.id,
+      name: row.booking.chamber.warehouse.name
+    }
+  }
+});
+var createInspectionDb = async (bookingId, inspectorId, payload, ip) => {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, deletedAt: null },
+    select: { id: true, lotCode: true, status: true, quantityKg: true }
+  });
+  if (!booking) {
+    throw new AppError(404, "Booking not found");
+  }
+  if (booking.status !== "PAID") {
+    throw new AppError(
+      409,
+      `Intake inspection is only possible on a PAID booking. This one is ${booking.status}.`
+    );
+  }
+  const existing = await prisma.inspection.findUnique({
+    where: { bookingId },
+    select: { id: true }
+  });
+  if (existing) {
+    throw new AppError(409, "This lot has already been inspected");
+  }
+  if (payload.grade === "REJECTED") {
+    assertTransition(booking.status, "CANCELLED");
+  }
+  return prisma.$transaction(async (tx) => {
+    if (payload.grade === "REJECTED") {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: "CANCELLED",
+          cancelReason: "Failed intake quality inspection"
+        }
+      });
+    }
+    const created = await tx.inspection.create({
+      data: {
+        bookingId,
+        inspectorId,
+        grade: payload.grade,
+        actualQtyKg: payload.actualQtyKg,
+        ...payload.moisturePct === void 0 ? {} : { moisturePct: payload.moisturePct },
+        ...payload.notes === void 0 ? {} : { notes: payload.notes }
+      },
+      select: inspectionSelect
+    });
+    await writeAuditLog(tx, {
+      actorId: inspectorId,
+      action: "INSPECTION_RECORDED",
+      entityType: "Booking",
+      entityId: bookingId,
+      after: {
+        grade: payload.grade,
+        actualQtyKg: payload.actualQtyKg,
+        declaredQtyKg: booking.quantityKg
+      },
+      ip
+    });
+    if (payload.grade === "REJECTED") {
+      await writeAuditLog(tx, {
+        actorId: inspectorId,
+        action: "BOOKING_CANCELLED",
+        entityType: "Booking",
+        entityId: bookingId,
+        before: { status: booking.status },
+        after: { status: "CANCELLED", reason: "Failed intake quality inspection" },
+        ip
+      });
+    }
+    return toInspection(created);
+  });
+};
+var getInspectionsFromDb = async (filters) => {
+  const pagination = buildPagination(filters, ["inspectedAt"], "inspectedAt");
+  const where = {};
+  if (filters.grade !== void 0) where.grade = filters.grade;
+  if (filters.bookingId !== void 0) where.bookingId = filters.bookingId;
+  const [rows, total] = await Promise.all([
+    prisma.inspection.findMany({
+      where,
+      select: inspectionSelect,
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.inspection.count({ where })
+  ]);
+  return {
+    data: rows.map(toInspection),
+    meta: buildMeta(pagination.page, pagination.limit, total)
+  };
+};
+var getInspectionByIdFromDb = async (id, actor) => {
+  const row = await prisma.inspection.findUnique({
+    where: { id },
+    select: inspectionSelect
+  });
+  if (!row) {
+    throw new AppError(404, "Inspection not found");
+  }
+  const isAdmin = actor.role === "ADMIN";
+  const isFarmer = row.booking.farmer.id === actor.id;
+  const isOwner = row.booking.chamber.warehouse.ownerId === actor.id;
+  if (!isAdmin && !isFarmer && !isOwner) {
+    throw new AppError(403, "You do not have access to this inspection");
+  }
+  return toInspection(row);
+};
+var inspectionService = {
+  createInspectionDb,
+  getInspectionsFromDb,
+  getInspectionByIdFromDb
+};
+
+// src/modules/inspection/inspection.controller.ts
+var createInspection = catchAsync(async (req, res) => {
+  const data = await inspectionService.createInspectionDb(
+    String(req.params.id),
+    req.user.id,
+    req.body,
+    req.ip
+  );
+  const message = data.grade === "REJECTED" ? "Inspection recorded. The lot failed and the booking has been cancelled for refund." : `Inspection recorded with grade ${data.grade}. The lot can now be stored.`;
+  sendResponse(res, { statusCode: 201, message, data });
+});
+var getInspections = catchAsync(async (_req, res) => {
+  const filters = validatedQuery(res);
+  const { data, meta } = await inspectionService.getInspectionsFromDb(filters);
+  sendResponse(res, { statusCode: 200, message: "Inspections retrieved successfully", data, meta });
+});
+var getInspectionById = catchAsync(async (req, res) => {
+  const data = await inspectionService.getInspectionByIdFromDb(String(req.params.id), {
+    id: req.user.id,
+    role: req.user.role
+  });
+  sendResponse(res, { statusCode: 200, message: "Inspection retrieved successfully", data });
+});
+var inspectionController = {
+  createInspection,
+  getInspections,
+  getInspectionById
+};
+
+// src/modules/inspection/inspection.validation.ts
+import { z as z3 } from "zod";
+var INSPECTION_GRADES = ["A", "B", "C", "REJECTED"];
+var createInspectionSchema = z3.object({
+  params: z3.object({ id: z3.uuid({ error: "id must be a valid uuid" }) }),
+  body: z3.object({
+    grade: z3.enum(INSPECTION_GRADES, {
+      error: "grade must be A, B, C or REJECTED"
+    }),
+    actualQtyKg: z3.coerce.number({ error: "actualQtyKg must be a number" }).int({ error: "actualQtyKg must be a whole number" }).positive({ error: "actualQtyKg must be greater than zero" }).max(1e7, { error: "actualQtyKg is unrealistically large" }),
+    moisturePct: z3.coerce.number({ error: "moisturePct must be a number" }).min(0, { error: "moisturePct cannot be negative" }).max(100, { error: "moisturePct cannot exceed 100" }).optional(),
+    notes: z3.string().trim().min(3).max(500).optional()
+  }).strict()
+});
+var listInspectionsSchema = z3.object({
+  query: z3.object({
+    grade: z3.enum(INSPECTION_GRADES).optional(),
+    bookingId: z3.uuid({ error: "bookingId must be a valid uuid" }).optional(),
+    sortOrder: z3.enum(["asc", "desc"]).optional(),
+    page: z3.coerce.number().int().positive().optional(),
+    limit: z3.coerce.number().int().positive().max(100).optional()
+  }).strict()
+});
+var inspectionIdSchema = z3.object({
+  params: z3.object({ id: z3.uuid({ error: "id must be a valid uuid" }) })
+});
+
+// src/modules/admin/admin.validation.ts
+import { z as z4 } from "zod";
+var USER_SORT_FIELDS = ["createdAt", "name", "email", "role"];
+var updateWarehouseStatusSchema = z4.object({
+  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) }),
+  body: z4.object({
+    status: z4.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"], {
+      error: "status must be PENDING, APPROVED, REJECTED or SUSPENDED"
+    }),
+    reason: z4.string().trim().min(3).max(255).optional()
+  }).strict()
+});
+var listUsersSchema = z4.object({
+  query: z4.object({
+    search: z4.string().trim().min(1).optional(),
+    role: z4.enum(["FARMER", "WAREHOUSE_OWNER", "ADMIN"]).optional(),
+    status: z4.enum(["ACTIVE", "BANNED"]).optional(),
+    verified: z4.enum(["true", "false"]).optional(),
+    includeDeleted: z4.enum(["true", "false"]).optional(),
+    sortBy: z4.enum(USER_SORT_FIELDS).optional(),
+    sortOrder: z4.enum(["asc", "desc"]).optional(),
+    page: z4.coerce.number().int().positive().optional(),
+    limit: z4.coerce.number().int().positive().max(100).optional()
+  }).strict()
+});
+var userIdSchema = z4.object({
+  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) })
+});
+var updateUserStatusSchema = z4.object({
+  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) }),
+  body: z4.object({
+    status: z4.enum(["ACTIVE", "BANNED"], { error: "status must be ACTIVE or BANNED" }),
+    reason: z4.string().trim().min(3).max(255).optional()
+  }).strict()
+});
+var updateUserRoleSchema = z4.object({
+  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) }),
+  body: z4.object({
+    role: z4.enum(["FARMER", "WAREHOUSE_OWNER", "ADMIN"], {
+      error: "role must be FARMER, WAREHOUSE_OWNER or ADMIN"
+    }),
+    reason: z4.string().trim().min(3).max(255).optional()
+  }).strict()
+});
+var listAuditLogsSchema = z4.object({
+  query: z4.object({
+    entityType: z4.string().trim().min(1).max(40).optional(),
+    entityId: z4.uuid({ error: "entityId must be a valid uuid" }).optional(),
+    actorId: z4.uuid({ error: "actorId must be a valid uuid" }).optional(),
+    action: z4.string().trim().min(1).max(60).optional(),
+    sortOrder: z4.enum(["asc", "desc"]).optional(),
+    page: z4.coerce.number().int().positive().optional(),
+    limit: z4.coerce.number().int().positive().max(100).optional()
+  }).strict()
+});
+
+// src/modules/admin/admin.service.ts
+var adminUserSelect = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  role: true,
+  status: true,
+  password: true,
+  googleId: true,
+  emailVerifiedAt: true,
+  deletedAt: true,
+  createdAt: true,
+  ownerProfile: { select: { id: true } }
+};
+var toAdminUser = (row) => ({
+  id: row.id,
+  name: row.name,
+  email: row.email,
+  phone: row.phone,
+  role: row.role,
+  status: row.status,
+  emailVerified: row.emailVerifiedAt !== null,
+  hasPassword: row.password !== null,
+  linkedGoogle: row.googleId !== null,
+  profileComplete: row.role === "WAREHOUSE_OWNER" ? row.ownerProfile !== null : true,
+  deletedAt: row.deletedAt,
+  createdAt: row.createdAt
+});
+var updateWarehouseStatusDb = async (warehouseId, adminId, payload, ip) => {
+  const warehouse = await prisma.warehouse.findFirst({
+    where: { id: warehouseId, deletedAt: null },
+    select: { id: true, name: true, status: true }
+  });
+  if (!warehouse) {
+    throw new AppError(404, "Warehouse not found");
+  }
+  if (warehouse.status === payload.status) {
+    throw new AppError(409, `This warehouse is already ${payload.status}`);
+  }
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.warehouse.update({
+      where: { id: warehouseId },
+      data: { status: payload.status },
+      select: { id: true, name: true, status: true }
+    });
+    await writeAuditLog(tx, {
+      actorId: adminId,
+      action: "WAREHOUSE_STATUS_CHANGED",
+      entityType: "Warehouse",
+      entityId: warehouseId,
+      before: { status: warehouse.status },
+      after: { status: next.status, reason: payload.reason ?? null },
+      ip
+    });
+    return next;
+  });
+  await invalidateWarehouseCache(warehouseId);
+  return updated;
+};
+var getUsersFromDb = async (filters) => {
+  const pagination = buildPagination(filters, USER_SORT_FIELDS, "createdAt");
+  const where = {};
+  if (filters.includeDeleted !== "true") {
+    where.deletedAt = null;
+  }
+  if (filters.role !== void 0) where.role = filters.role;
+  if (filters.status !== void 0) where.status = filters.status;
+  if (filters.verified !== void 0) {
+    where.emailVerifiedAt = filters.verified === "true" ? { not: null } : null;
+  }
+  if (filters.search !== void 0) {
+    where.OR = [
+      { name: { contains: filters.search, mode: "insensitive" } },
+      { email: { contains: filters.search, mode: "insensitive" } }
+    ];
+  }
+  const [rows, total] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      select: adminUserSelect,
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.user.count({ where })
+  ]);
+  return {
+    data: rows.map(toAdminUser),
+    meta: buildMeta(pagination.page, pagination.limit, total)
+  };
+};
+var getUserByIdFromDb = async (id) => {
+  const row = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      ...adminUserSelect,
+      farmerProfile: {
+        select: { district: true, upazila: true, nid: true, farmSizeAcre: true }
+      },
+      ownerProfile: {
+        select: {
+          id: true,
+          businessName: true,
+          tradeLicenseNo: true,
+          nid: true,
+          district: true,
+          address: true
+        }
+      },
+      _count: { select: { warehouses: true, bookings: true } }
+    }
+  });
+  if (!row) {
+    throw new AppError(404, "User not found");
+  }
+  const { farmerProfile, ownerProfile, _count, ...base } = row;
+  return {
+    ...toAdminUser({
+      ...base,
+      ownerProfile: ownerProfile === null ? null : { id: ownerProfile.id }
+    }),
+    farmerProfile: farmerProfile === null ? null : {
+      district: farmerProfile.district,
+      upazila: farmerProfile.upazila,
+      nid: farmerProfile.nid,
+      farmSizeAcre: farmerProfile.farmSizeAcre === null ? null : Number(farmerProfile.farmSizeAcre)
+    },
+    ownerProfile: ownerProfile === null ? null : {
+      businessName: ownerProfile.businessName,
+      tradeLicenseNo: ownerProfile.tradeLicenseNo,
+      nid: ownerProfile.nid,
+      district: ownerProfile.district,
+      address: ownerProfile.address
+    },
+    counts: { warehouses: _count.warehouses, bookings: _count.bookings }
+  };
+};
+var loadTargetUser = async (id, adminId) => {
+  if (id === adminId) {
+    throw new AppError(403, "You cannot change your own account through the admin API");
+  }
+  const target = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, name: true, email: true, role: true, status: true, deletedAt: true }
+  });
+  if (!target || target.deletedAt !== null) {
+    throw new AppError(404, "User not found");
+  }
+  if (target.role === "ADMIN") {
+    throw new AppError(403, "Admin accounts cannot be modified through this API");
+  }
+  return target;
+};
+var updateUserStatusDb = async (id, adminId, payload, ip) => {
+  const target = await loadTargetUser(id, adminId);
+  if (target.status === payload.status) {
+    throw new AppError(409, `This account is already ${payload.status}`);
+  }
+  return prisma.$transaction(async (tx) => {
+    const next = await tx.user.update({
+      where: { id },
+      data: { status: payload.status },
+      select: { id: true, name: true, email: true, role: true, status: true }
+    });
+    await writeAuditLog(tx, {
+      actorId: adminId,
+      action: payload.status === "BANNED" ? "USER_BANNED" : "USER_UNBANNED",
+      entityType: "User",
+      entityId: id,
+      before: { status: target.status },
+      after: { status: next.status, reason: payload.reason ?? null },
+      ip
+    });
+    return next;
+  });
+};
+var updateUserRoleDb = async (id, adminId, payload, ip) => {
+  const target = await loadTargetUser(id, adminId);
+  if (target.role === payload.role) {
+    throw new AppError(409, `This account is already a ${payload.role}`);
+  }
+  if (target.role === "WAREHOUSE_OWNER") {
+    const warehouses = await prisma.warehouse.count({
+      where: { ownerId: id, deletedAt: null }
+    });
+    if (warehouses > 0) {
+      throw new AppError(
+        409,
+        `Cannot change this role while the account still owns ${warehouses} warehouse(s)`
+      );
+    }
+  }
+  if (target.role === "FARMER") {
+    const activeBookings = await prisma.booking.count({
+      where: {
+        farmerId: id,
+        deletedAt: null,
+        status: { in: ["PENDING_APPROVAL", "APPROVED", "PAID", "STORED", "WITHDRAW_REQUESTED"] }
+      }
+    });
+    if (activeBookings > 0) {
+      throw new AppError(
+        409,
+        `Cannot change this role while the account has ${activeBookings} active booking(s)`
+      );
+    }
+  }
+  return prisma.$transaction(async (tx) => {
+    const next = await tx.user.update({
+      where: { id },
+      data: { role: payload.role },
+      select: { id: true, name: true, email: true, role: true, status: true }
+    });
+    await writeAuditLog(tx, {
+      actorId: adminId,
+      action: "USER_ROLE_CHANGED",
+      entityType: "User",
+      entityId: id,
+      before: { role: target.role },
+      after: { role: next.role, reason: payload.reason ?? null },
+      ip
+    });
+    return next;
+  });
+};
+var getAuditLogsFromDb = async (filters) => {
+  const pagination = buildPagination(filters, ["createdAt"], "createdAt");
+  const where = {};
+  if (filters.entityType !== void 0) where.entityType = filters.entityType;
+  if (filters.entityId !== void 0) where.entityId = filters.entityId;
+  if (filters.actorId !== void 0) where.actorId = filters.actorId;
+  if (filters.action !== void 0) {
+    where.action = { contains: filters.action, mode: "insensitive" };
+  }
+  const [rows, total] = await Promise.all([
+    prisma.auditLog.findMany({
+      where,
+      select: {
+        id: true,
+        action: true,
+        entityType: true,
+        entityId: true,
+        before: true,
+        after: true,
+        ip: true,
+        createdAt: true,
+        actor: { select: { id: true, name: true, role: true } }
+      },
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.auditLog.count({ where })
+  ]);
+  return {
+    data: rows,
+    meta: buildMeta(pagination.page, pagination.limit, total)
+  };
+};
+var getPlatformStatsFromDb = async () => {
+  const [
+    totalUsers,
+    activeUsers,
+    bannedUsers,
+    deletedUsers,
+    unverifiedUsers,
+    usersByRole,
+    totalWarehouses,
+    warehousesByStatus,
+    chambers,
+    totalBookings,
+    bookingsByStatus,
+    payments,
+    districts
+  ] = await Promise.all([
+    prisma.user.count({ where: { deletedAt: null } }),
+    prisma.user.count({ where: { deletedAt: null, status: "ACTIVE" } }),
+    prisma.user.count({ where: { deletedAt: null, status: "BANNED" } }),
+    prisma.user.count({ where: { deletedAt: { not: null } } }),
+    prisma.user.count({ where: { deletedAt: null, emailVerifiedAt: null } }),
+    prisma.user.groupBy({ by: ["role"], where: { deletedAt: null }, _count: true }),
+    prisma.warehouse.count({ where: { deletedAt: null } }),
+    prisma.warehouse.groupBy({ by: ["status"], where: { deletedAt: null }, _count: true }),
+    prisma.chamber.aggregate({
+      where: { deletedAt: null },
+      _count: true,
+      _sum: { capacityKg: true }
+    }),
+    prisma.booking.count({ where: { deletedAt: null } }),
+    prisma.booking.groupBy({ by: ["status"], where: { deletedAt: null }, _count: true }),
+    prisma.payment.aggregate({
+      where: { status: "SUCCEEDED" },
+      _count: true,
+      _sum: { amountBdt: true }
+    }),
+    prisma.warehouse.groupBy({
+      by: ["district"],
+      where: { deletedAt: null, status: "APPROVED" },
+      _count: true
+    })
+  ]);
+  return {
+    users: {
+      total: totalUsers,
+      active: activeUsers,
+      banned: bannedUsers,
+      deleted: deletedUsers,
+      unverified: unverifiedUsers,
+      byRole: Object.fromEntries(usersByRole.map((row) => [row.role, row._count]))
+    },
+    warehouses: {
+      total: totalWarehouses,
+      byStatus: Object.fromEntries(warehousesByStatus.map((row) => [row.status, row._count]))
+    },
+    chambers: {
+      total: chambers._count,
+      totalCapacityKg: chambers._sum.capacityKg ?? 0
+    },
+    bookings: {
+      total: totalBookings,
+      byStatus: Object.fromEntries(bookingsByStatus.map((row) => [row.status, row._count]))
+    },
+    payments: {
+      succeeded: payments._count,
+      revenueBdt: Number(payments._sum.amountBdt ?? 0)
+    },
+    topDistricts: districts.map((row) => ({ district: row.district, warehouses: row._count })).sort((a, b) => b.warehouses - a.warehouses).slice(0, 5)
+  };
+};
+var adminService = {
+  updateWarehouseStatusDb,
+  getUsersFromDb,
+  getUserByIdFromDb,
+  updateUserStatusDb,
+  updateUserRoleDb,
+  getAuditLogsFromDb,
+  getPlatformStatsFromDb
+};
+
+// src/modules/admin/admin.controller.ts
+var updateWarehouseStatus = catchAsync(async (req, res) => {
+  const data = await adminService.updateWarehouseStatusDb(
+    String(req.params.id),
+    req.user.id,
+    req.body,
+    req.ip
+  );
+  sendResponse(res, {
+    statusCode: 200,
+    message: `Warehouse status changed to ${data.status}`,
+    data
+  });
+});
+var getUsers = catchAsync(async (_req, res) => {
+  const filters = validatedQuery(res);
+  const { data, meta } = await adminService.getUsersFromDb(filters);
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Users retrieved successfully",
+    data,
+    meta
+  });
+});
+var getUserById = catchAsync(async (req, res) => {
+  const data = await adminService.getUserByIdFromDb(String(req.params.id));
+  sendResponse(res, {
+    statusCode: 200,
+    message: "User retrieved successfully",
+    data
+  });
+});
+var updateUserStatus = catchAsync(async (req, res) => {
+  const data = await adminService.updateUserStatusDb(
+    String(req.params.id),
+    req.user.id,
+    req.body,
+    req.ip
+  );
+  sendResponse(res, {
+    statusCode: 200,
+    message: `Account is now ${data.status}`,
+    data
+  });
+});
+var updateUserRole = catchAsync(async (req, res) => {
+  const data = await adminService.updateUserRoleDb(
+    String(req.params.id),
+    req.user.id,
+    req.body,
+    req.ip
+  );
+  sendResponse(res, {
+    statusCode: 200,
+    message: `Role changed to ${data.role}`,
+    data
+  });
+});
+var getAuditLogs = catchAsync(async (_req, res) => {
+  const filters = validatedQuery(res);
+  const { data, meta } = await adminService.getAuditLogsFromDb(filters);
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Audit logs retrieved successfully",
+    data,
+    meta
+  });
+});
+var getStats = catchAsync(async (_req, res) => {
+  const data = await adminService.getPlatformStatsFromDb();
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Platform statistics retrieved successfully",
+    data
+  });
+});
+var adminController = {
+  updateWarehouseStatus,
+  getUsers,
+  getUserById,
+  updateUserStatus,
+  updateUserRole,
+  getAuditLogs,
+  getStats
+};
+
+// src/modules/admin/admin.route.ts
+var router = Router();
+router.use(auth, authorize("ADMIN"));
+router.get(
+  "/stats",
+  cacheResponse(CACHE_TTL.adminStats, () => cacheKeys.adminStats()),
+  adminController.getStats
+);
+router.get("/bookings", validateRequest(listBookingsSchema), bookingController.getAllBookings);
+router.post(
+  "/bookings/:id/inspection",
+  validateRequest(createInspectionSchema),
+  inspectionController.createInspection
+);
+router.get("/audit-logs", validateRequest(listAuditLogsSchema), adminController.getAuditLogs);
+router.get("/users", validateRequest(listUsersSchema), adminController.getUsers);
+router.get("/users/:id", validateRequest(userIdSchema), adminController.getUserById);
+router.patch(
+  "/users/:id/status",
+  validateRequest(updateUserStatusSchema),
+  adminController.updateUserStatus
+);
+router.patch(
+  "/users/:id/role",
+  validateRequest(updateUserRoleSchema),
+  adminController.updateUserRole
+);
+router.patch(
+  "/warehouses/:id/status",
+  validateRequest(updateWarehouseStatusSchema),
+  adminController.updateWarehouseStatus
+);
+var adminRoute = router;
+
+// src/modules/auth/auth.route.ts
+import { Router as Router2 } from "express";
+
 // src/modules/auth/auth.service.ts
-import bcrypt from "bcrypt";
 import { randomUUID as randomUUID2 } from "crypto";
+import bcrypt from "bcrypt";
+
+// src/lib/google.ts
+import { OAuth2Client } from "google-auth-library";
+var googleClient = new OAuth2Client({
+  clientId: env.GOOGLE_CLIENT_ID,
+  clientSecret: env.GOOGLE_CLIENT_SECRET,
+  redirectUri: env.GOOGLE_REDIRECT_URI
+});
+var GOOGLE_SCOPES = ["openid", "email", "profile"];
+
+// src/lib/mailer.ts
+import { Resend } from "resend";
+var resend = new Resend(env.RESEND_API_KEY);
+var sendEmail = async ({ to, subject, html, text }) => {
+  const { error } = await resend.emails.send({
+    from: env.EMAIL_FROM,
+    to,
+    subject,
+    html,
+    text
+  });
+  if (error) {
+    console.error("Resend send failed:", error);
+    throw new AppError(502, `Could not send email to ${to}. Please try again shortly.`);
+  }
+};
 
 // src/utils/emailTemplates.ts
 var buildOtpEmail = (name4, code) => {
@@ -681,12 +2403,12 @@ If you did not create an AgroStore account, ignore this email.`,
 };
 
 // src/utils/otp.ts
-import { createHash, randomInt, timingSafeEqual } from "crypto";
+import { createHash as createHash2, randomInt, timingSafeEqual } from "crypto";
 var codeKey = (email) => `otp:email-verify:${email}`;
 var attemptsKey = (email) => `otp:email-verify:attempts:${email}`;
 var cooldownKey = (email) => `otp:email-verify:cooldown:${email}`;
 var RESEND_COOLDOWN_SECONDS = 60;
-var hashCode = (code) => createHash("sha256").update(code).digest("hex");
+var hashCode = (code) => createHash2("sha256").update(code).digest("hex");
 var matches = (a, b) => {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
@@ -726,32 +2448,6 @@ var consumeOtp = async (email, submitted) => {
   await redis.del(codeKey(email), attemptsKey(email), cooldownKey(email));
 };
 
-// src/lib/mailer.ts
-import { Resend } from "resend";
-var resend = new Resend(env.RESEND_API_KEY);
-var sendEmail = async ({ to, subject, html, text }) => {
-  const { error } = await resend.emails.send({
-    from: env.EMAIL_FROM,
-    to,
-    subject,
-    html,
-    text
-  });
-  if (error) {
-    console.error("Resend send failed:", error);
-    throw new AppError(502, `Could not send email to ${to}. Please try again shortly.`);
-  }
-};
-
-// src/lib/google.ts
-import { OAuth2Client } from "google-auth-library";
-var googleClient = new OAuth2Client({
-  clientId: env.GOOGLE_CLIENT_ID,
-  clientSecret: env.GOOGLE_CLIENT_SECRET,
-  redirectUri: env.GOOGLE_REDIRECT_URI
-});
-var GOOGLE_SCOPES = ["openid", "email", "profile"];
-
 // src/utils/publicUser.ts
 var publicUserSelect = {
   id: true,
@@ -770,58 +2466,58 @@ var toPublicUser = (user) => {
 };
 
 // src/modules/auth/auth.validation.ts
-import { z as z2 } from "zod";
+import { z as z5 } from "zod";
 var SELF_SERVICE_ROLES = ["FARMER", "WAREHOUSE_OWNER"];
 var BANGLADESHI_PHONE = /^(?:\+?880|0)1[3-9]\d{8}$/;
-var signupSchema = z2.object({
-  body: z2.object({
-    name: z2.string({ error: "name is required" }).trim().min(2, { error: "name must be at least 2 characters" }).max(80, { error: "name must be at most 80 characters" }),
-    email: z2.email({ error: "email must be a valid email address" }).trim().toLowerCase().max(255, { error: "email must be at most 255 characters" }),
-    password: z2.string({ error: "password is required" }).min(8, { error: "password must be at least 8 characters" }).max(72, { error: "password must be at most 72 characters" }).regex(/[A-Za-z]/, { error: "password must contain at least one letter" }).regex(/\d/, { error: "password must contain at least one number" }),
-    phone: z2.string().trim().regex(BANGLADESHI_PHONE, {
+var signupSchema = z5.object({
+  body: z5.object({
+    name: z5.string({ error: "name is required" }).trim().min(2, { error: "name must be at least 2 characters" }).max(80, { error: "name must be at most 80 characters" }),
+    email: z5.email({ error: "email must be a valid email address" }).trim().toLowerCase().max(255, { error: "email must be at most 255 characters" }),
+    password: z5.string({ error: "password is required" }).min(8, { error: "password must be at least 8 characters" }).max(72, { error: "password must be at most 72 characters" }).regex(/[A-Za-z]/, { error: "password must contain at least one letter" }).regex(/\d/, { error: "password must contain at least one number" }),
+    phone: z5.string().trim().regex(BANGLADESHI_PHONE, {
       error: "phone must be a valid Bangladeshi number, e.g. 01712345678"
     }).optional(),
-    role: z2.enum(SELF_SERVICE_ROLES, {
+    role: z5.enum(SELF_SERVICE_ROLES, {
       error: "role must be either FARMER or WAREHOUSE_OWNER. ADMIN accounts cannot be created through the API."
     })
   }).strict()
 });
-var loginSchema = z2.object({
-  body: z2.object({
-    email: z2.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
-    password: z2.string({ error: "password is required" }).min(1, {
+var loginSchema = z5.object({
+  body: z5.object({
+    email: z5.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
+    password: z5.string({ error: "password is required" }).min(1, {
       error: "password is required"
     })
   }).strict()
 });
-var strongPassword = z2.string({ error: "password is required" }).min(8, { error: "password must be at least 8 characters" }).max(72, { error: "password must be at most 72 characters" }).regex(/[A-Za-z]/, { error: "password must contain at least one letter" }).regex(/\d/, { error: "password must contain at least one number" });
-var setPasswordSchema = z2.object({
-  body: z2.object({
+var strongPassword = z5.string({ error: "password is required" }).min(8, { error: "password must be at least 8 characters" }).max(72, { error: "password must be at most 72 characters" }).regex(/[A-Za-z]/, { error: "password must contain at least one letter" }).regex(/\d/, { error: "password must contain at least one number" });
+var setPasswordSchema = z5.object({
+  body: z5.object({
     newPassword: strongPassword
   }).strict()
 });
-var changePasswordSchema = z2.object({
-  body: z2.object({
-    currentPassword: z2.string({ error: "currentPassword is required" }).min(1, {
+var changePasswordSchema = z5.object({
+  body: z5.object({
+    currentPassword: z5.string({ error: "currentPassword is required" }).min(1, {
       error: "currentPassword is required"
     }),
     newPassword: strongPassword
   }).strict()
 });
-var verifyOtpSchema = z2.object({
-  body: z2.object({
-    email: z2.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
-    otp: z2.string({ error: "otp is required" }).trim().regex(/^\d+$/, { error: "otp must contain digits only" })
+var verifyOtpSchema = z5.object({
+  body: z5.object({
+    email: z5.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
+    otp: z5.string({ error: "otp is required" }).trim().regex(/^\d+$/, { error: "otp must contain digits only" })
   }).strict()
 });
-var resendOtpSchema = z2.object({
-  body: z2.object({
-    email: z2.email({ error: "email must be a valid email address" }).trim().toLowerCase()
+var resendOtpSchema = z5.object({
+  body: z5.object({
+    email: z5.email({ error: "email must be a valid email address" }).trim().toLowerCase()
   }).strict()
 });
-var refreshTokenSchema = z2.object({
-  body: z2.object({
-    refreshToken: z2.string().trim().min(1).optional()
+var refreshTokenSchema = z5.object({
+  body: z5.object({
+    refreshToken: z5.string().trim().min(1).optional()
   }).strict()
 });
 
@@ -1272,1523 +2968,23 @@ var authController = {
 };
 
 // src/modules/auth/auth.route.ts
-var router = Router();
-router.post("/signup", validateRequest(signupSchema), authController.signup);
-router.post("/verify-otp", validateRequest(verifyOtpSchema), authController.verifyOtp);
-router.post("/resend-otp", validateRequest(resendOtpSchema), authController.resendOtp);
-router.post("/login", validateRequest(loginSchema), authController.login);
-router.post("/refresh-token", validateRequest(refreshTokenSchema), authController.refreshToken);
-router.post("/logout", validateRequest(refreshTokenSchema), authController.logout);
-router.post("/set-password", auth, validateRequest(setPasswordSchema), authController.setPassword);
-router.post(
+var router2 = Router2();
+router2.post("/signup", authLimiter, validateRequest(signupSchema), authController.signup);
+router2.post("/verify-otp", otpLimiter, validateRequest(verifyOtpSchema), authController.verifyOtp);
+router2.post("/resend-otp", otpLimiter, validateRequest(resendOtpSchema), authController.resendOtp);
+router2.post("/login", authLimiter, validateRequest(loginSchema), authController.login);
+router2.post("/refresh-token", validateRequest(refreshTokenSchema), authController.refreshToken);
+router2.post("/logout", validateRequest(refreshTokenSchema), authController.logout);
+router2.post("/set-password", auth, validateRequest(setPasswordSchema), authController.setPassword);
+router2.post(
   "/change-password",
   auth,
   validateRequest(changePasswordSchema),
   authController.changePassword
 );
-router.get("/google", authController.googleRedirect);
-router.get("/google/callback", authController.googleCallback);
-var authRoute = router;
-
-// src/modules/admin/admin.route.ts
-import { Router as Router2 } from "express";
-
-// src/middlewares/authorize.ts
-var authorize = (...allowed) => (req, _res, next) => {
-  const current = req.user;
-  if (current === void 0) {
-    next(new AppError(401, "Authentication required"));
-    return;
-  }
-  if (!allowed.includes(current.role)) {
-    next(new AppError(403, `This action is restricted to: ${allowed.join(", ")}`));
-    return;
-  }
-  next();
-};
-
-// src/modules/booking/booking.service.ts
-import { randomBytes } from "crypto";
-
-// src/utils/auditLogger.ts
-var writeAuditLog = async (client, entry) => {
-  await client.auditLog.create({
-    data: {
-      actorId: entry.actorId,
-      action: entry.action,
-      entityType: entry.entityType,
-      entityId: entry.entityId,
-      ...entry.before === void 0 ? {} : { before: entry.before },
-      ...entry.after === void 0 ? {} : { after: entry.after },
-      ...entry.ip === void 0 ? {} : { ip: entry.ip }
-    }
-  });
-};
-
-// src/utils/capacity.ts
-var DAY_MS = 24 * 60 * 60 * 1e3;
-var peakLoadKg = (bookings, from, to) => {
-  const events = [];
-  for (const booking of bookings) {
-    const start = Math.max(booking.startDate.getTime(), from.getTime());
-    const end = Math.min(booking.endDate.getTime(), to.getTime());
-    if (start > end) {
-      continue;
-    }
-    events.push({ at: start, delta: booking.quantityKg });
-    events.push({ at: end + DAY_MS, delta: -booking.quantityKg });
-  }
-  events.sort((a, b) => a.at - b.at || a.delta - b.delta);
-  let running = 0;
-  let peak = 0;
-  for (const event of events) {
-    running += event.delta;
-    if (running > peak) {
-      peak = running;
-    }
-  }
-  return peak;
-};
-var dailyLoad = (capacityKg2, bookings, from, to) => {
-  const days = [];
-  for (let cursor = from.getTime(); cursor <= to.getTime(); cursor += DAY_MS) {
-    let usedKg = 0;
-    for (const booking of bookings) {
-      if (booking.startDate.getTime() <= cursor && booking.endDate.getTime() >= cursor) {
-        usedKg += booking.quantityKg;
-      }
-    }
-    days.push({
-      date: new Date(cursor).toISOString().slice(0, 10),
-      usedKg,
-      freeKg: Math.max(0, capacityKg2 - usedKg)
-    });
-  }
-  return days;
-};
-
-// src/utils/paginate.ts
-var buildPagination = (input, allowedSortFields, defaultSortBy) => {
-  const page = input.page ?? 1;
-  const limit = input.limit ?? 10;
-  const sortBy = input.sortBy !== void 0 && allowedSortFields.includes(input.sortBy) ? input.sortBy : defaultSortBy;
-  const sortOrder = input.sortOrder ?? "desc";
-  return {
-    skip: (page - 1) * limit,
-    take: limit,
-    page,
-    limit,
-    orderBy: { [sortBy]: sortOrder }
-  };
-};
-var buildMeta = (page, limit, total) => ({
-  page,
-  limit,
-  total,
-  totalPages: total === 0 ? 0 : Math.ceil(total / limit)
-});
-
-// src/utils/pricing.ts
-var DAY_MS2 = 24 * 60 * 60 * 1e3;
-var OVERSTAY_SURCHARGE_MULTIPLIER = 0.5;
-var round2 = (value) => Math.round(value * 100) / 100;
-var inclusiveDays = (start, end) => Math.floor((end.getTime() - start.getTime()) / DAY_MS2) + 1;
-var estimateCost = (quantityKg, ratePerKgPerDay2, days) => round2(quantityKg * ratePerKgPerDay2 * days);
-var settleBooking = (input) => {
-  const billableDays = Math.max(input.actualDays, input.minBookingDays);
-  const baseCost = round2(input.quantityKg * input.ratePerKgPerDay * billableDays);
-  const overstayDays = Math.max(0, input.actualDays - input.bookedDays);
-  const surcharge = round2(
-    input.quantityKg * input.ratePerKgPerDay * overstayDays * OVERSTAY_SURCHARGE_MULTIPLIER
-  );
-  const finalCost = round2(baseCost + surcharge);
-  return {
-    billableDays,
-    baseCost,
-    overstayDays,
-    surcharge,
-    finalCost,
-    balance: round2(finalCost - input.alreadyPaidBdt)
-  };
-};
-
-// src/utils/stateMachine.ts
-var ALLOWED_TRANSITIONS = {
-  PENDING_APPROVAL: ["APPROVED", "REJECTED", "CANCELLED"],
-  APPROVED: ["PAID", "EXPIRED", "CANCELLED"],
-  PAID: ["STORED", "CANCELLED"],
-  STORED: ["WITHDRAW_REQUESTED"],
-  WITHDRAW_REQUESTED: ["COMPLETED"],
-  COMPLETED: [],
-  REJECTED: [],
-  CANCELLED: [],
-  EXPIRED: []
-};
-var canTransition = (from, to) => ALLOWED_TRANSITIONS[from].includes(to);
-var assertTransition = (from, to) => {
-  if (canTransition(from, to)) {
-    return;
-  }
-  const allowed = ALLOWED_TRANSITIONS[from];
-  const detail = allowed.length === 0 ? `${from} is a final state` : `from ${from} you can only move to ${allowed.join(", ")}`;
-  throw new AppError(409, `Cannot move this booking from ${from} to ${to} - ${detail}`);
-};
-var ACTIVE_BOOKING_STATUSES = [
-  "PENDING_APPROVAL",
-  "APPROVED",
-  "PAID",
-  "STORED",
-  "WITHDRAW_REQUESTED"
-];
-
-// src/modules/booking/booking.validation.ts
-import { z as z3 } from "zod";
-var BOOKING_SORT_FIELDS = ["createdAt", "startDate", "endDate", "quantityKg"];
-var BOOKING_STATUSES = [
-  "PENDING_APPROVAL",
-  "APPROVED",
-  "REJECTED",
-  "CANCELLED",
-  "PAID",
-  "STORED",
-  "WITHDRAW_REQUESTED",
-  "COMPLETED",
-  "EXPIRED"
-];
-var isoDate = z3.string({ error: "date is required" }).regex(/^\d{4}-\d{2}-\d{2}$/, { error: "date must be in YYYY-MM-DD format" }).transform((value) => /* @__PURE__ */ new Date(`${value}T00:00:00.000Z`)).refine((date) => !Number.isNaN(date.getTime()), { error: "date is not a real calendar date" });
-var reason = z3.string().trim().min(3, { error: "reason must be at least 3 characters" }).max(255, { error: "reason must be at most 255 characters" });
-var createBookingSchema = z3.object({
-  body: z3.object({
-    chamberId: z3.uuid({ error: "chamberId must be a valid uuid" }),
-    cropTypeId: z3.uuid({ error: "cropTypeId must be a valid uuid" }),
-    quantityKg: z3.coerce.number({ error: "quantityKg must be a number" }).int({ error: "quantityKg must be a whole number" }).positive({ error: "quantityKg must be greater than zero" }).max(1e7, { error: "quantityKg is unrealistically large" }),
-    startDate: isoDate,
-    endDate: isoDate
-  }).strict().refine((body) => body.endDate.getTime() >= body.startDate.getTime(), {
-    error: "endDate must be on or after startDate",
-    path: ["endDate"]
-  })
-});
-var listBookingsSchema = z3.object({
-  query: z3.object({
-    status: z3.enum(BOOKING_STATUSES).optional(),
-    sortBy: z3.enum(BOOKING_SORT_FIELDS).optional(),
-    sortOrder: z3.enum(["asc", "desc"]).optional(),
-    page: z3.coerce.number().int().positive().optional(),
-    limit: z3.coerce.number().int().positive().max(100).optional()
-  }).strict()
-});
-var warehouseBookingsSchema = z3.object({
-  params: z3.object({ id: z3.uuid({ error: "id must be a valid uuid" }) }),
-  query: z3.object({
-    status: z3.enum(BOOKING_STATUSES).optional(),
-    sortBy: z3.enum(BOOKING_SORT_FIELDS).optional(),
-    sortOrder: z3.enum(["asc", "desc"]).optional(),
-    page: z3.coerce.number().int().positive().optional(),
-    limit: z3.coerce.number().int().positive().max(100).optional()
-  }).strict()
-});
-var bookingIdSchema = z3.object({
-  params: z3.object({ id: z3.uuid({ error: "id must be a valid uuid" }) })
-});
-var bookingReasonSchema = z3.object({
-  params: z3.object({ id: z3.uuid({ error: "id must be a valid uuid" }) }),
-  body: z3.object({ reason: reason.optional() }).strict()
-});
-
-// src/modules/booking/booking.service.ts
-var HOLD_MINUTES = 30;
-var MAX_ADVANCE_DAYS = 90;
-var bookingSelect = {
-  id: true,
-  lotCode: true,
-  status: true,
-  quantityKg: true,
-  startDate: true,
-  endDate: true,
-  ratePerKgPerDay: true,
-  estimatedCost: true,
-  finalCost: true,
-  holdExpiresAt: true,
-  storedAt: true,
-  withdrawnAt: true,
-  cancelReason: true,
-  createdAt: true,
-  cropType: { select: { id: true, name: true } },
-  farmer: { select: { id: true, name: true, phone: true } },
-  chamber: {
-    select: {
-      id: true,
-      name: true,
-      minTempC: true,
-      maxTempC: true,
-      warehouse: { select: { id: true, name: true, district: true, ownerId: true } }
-    }
-  }
-};
-var toBooking = (row) => ({
-  id: row.id,
-  lotCode: row.lotCode,
-  status: row.status,
-  quantityKg: row.quantityKg,
-  startDate: row.startDate,
-  endDate: row.endDate,
-  bookedDays: inclusiveDays(row.startDate, row.endDate),
-  ratePerKgPerDay: Number(row.ratePerKgPerDay),
-  estimatedCost: Number(row.estimatedCost),
-  finalCost: row.finalCost === null ? null : Number(row.finalCost),
-  holdExpiresAt: row.holdExpiresAt,
-  storedAt: row.storedAt,
-  withdrawnAt: row.withdrawnAt,
-  cancelReason: row.cancelReason,
-  createdAt: row.createdAt,
-  cropType: row.cropType,
-  chamber: {
-    id: row.chamber.id,
-    name: row.chamber.name,
-    minTempC: Number(row.chamber.minTempC),
-    maxTempC: Number(row.chamber.maxTempC)
-  },
-  warehouse: {
-    id: row.chamber.warehouse.id,
-    name: row.chamber.warehouse.name,
-    district: row.chamber.warehouse.district
-  },
-  farmer: row.farmer
-});
-var generateLotCode = () => `AS-${(/* @__PURE__ */ new Date()).getUTCFullYear()}-${randomBytes(4).toString("hex").toUpperCase().slice(0, 6)}`;
-var startOfToday = () => {
-  const now = /* @__PURE__ */ new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-};
-var expireStaleHolds = async (tx, chamberId) => {
-  await tx.booking.updateMany({
-    where: {
-      chamberId,
-      deletedAt: null,
-      status: "APPROVED",
-      holdExpiresAt: { lt: /* @__PURE__ */ new Date() }
-    },
-    data: { status: "EXPIRED" }
-  });
-};
-var createBookingDb = async (farmerId, payload, ip) => {
-  const { chamberId, cropTypeId, quantityKg, startDate, endDate } = payload;
-  const today = startOfToday();
-  const latestStart = new Date(today.getTime() + MAX_ADVANCE_DAYS * 24 * 60 * 60 * 1e3);
-  if (startDate < today) {
-    throw new AppError(422, "startDate cannot be in the past");
-  }
-  if (startDate > latestStart) {
-    throw new AppError(422, `startDate cannot be more than ${MAX_ADVANCE_DAYS} days ahead`);
-  }
-  const chamber = await prisma.chamber.findFirst({
-    where: { id: chamberId, deletedAt: null },
-    select: {
-      id: true,
-      name: true,
-      capacityKg: true,
-      minTempC: true,
-      maxTempC: true,
-      isActive: true,
-      warehouse: {
-        select: {
-          id: true,
-          name: true,
-          status: true,
-          deletedAt: true,
-          minBookingDays: true,
-          ratePerKgPerDay: true
-        }
-      }
-    }
-  });
-  if (!chamber || chamber.warehouse.deletedAt !== null) {
-    throw new AppError(404, "Chamber not found");
-  }
-  if (!chamber.isActive) {
-    throw new AppError(409, "This chamber is not accepting lots right now");
-  }
-  if (chamber.warehouse.status !== "APPROVED") {
-    throw new AppError(
-      409,
-      `This warehouse is ${chamber.warehouse.status} and cannot accept bookings yet`
-    );
-  }
-  const cropType = await prisma.cropType.findFirst({
-    where: { id: cropTypeId, deletedAt: null },
-    select: { id: true, name: true, idealMinTempC: true, idealMaxTempC: true, maxStorageDays: true }
-  });
-  if (!cropType) {
-    throw new AppError(404, "Crop type not found");
-  }
-  const cropMin = Number(cropType.idealMinTempC);
-  const cropMax = Number(cropType.idealMaxTempC);
-  const chamberMin = Number(chamber.minTempC);
-  const chamberMax = Number(chamber.maxTempC);
-  if (chamberMin > cropMin || chamberMax < cropMax) {
-    throw new AppError(
-      422,
-      `${cropType.name} needs ${cropMin} to ${cropMax}C, but chamber ${chamber.name} runs ${chamberMin} to ${chamberMax}C`
-    );
-  }
-  const days = inclusiveDays(startDate, endDate);
-  if (days < chamber.warehouse.minBookingDays) {
-    throw new AppError(
-      422,
-      `This warehouse requires a minimum booking of ${chamber.warehouse.minBookingDays} days, you requested ${days}`
-    );
-  }
-  if (days > cropType.maxStorageDays) {
-    throw new AppError(
-      422,
-      `${cropType.name} can be stored for at most ${cropType.maxStorageDays} days, you requested ${days}`
-    );
-  }
-  const rate = Number(chamber.warehouse.ratePerKgPerDay);
-  const estimate = estimateCost(quantityKg, rate, days);
-  return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM chambers WHERE id = ${chamberId} FOR UPDATE`;
-    await expireStaleHolds(tx, chamberId);
-    const competing = await tx.booking.findMany({
-      where: {
-        chamberId,
-        deletedAt: null,
-        startDate: { lte: endDate },
-        endDate: { gte: startDate },
-        status: { in: ACTIVE_BOOKING_STATUSES }
-      },
-      select: { startDate: true, endDate: true, quantityKg: true }
-    });
-    const peak = peakLoadKg(competing, startDate, endDate);
-    const free = chamber.capacityKg - peak;
-    if (quantityKg > free) {
-      throw new AppError(
-        409,
-        `Only ${free}kg is available in chamber ${chamber.name} between ${startDate.toISOString().slice(0, 10)} and ${endDate.toISOString().slice(0, 10)}`
-      );
-    }
-    const created = await tx.booking.create({
-      data: {
-        lotCode: generateLotCode(),
-        farmerId,
-        chamberId,
-        cropTypeId,
-        quantityKg,
-        startDate,
-        endDate,
-        ratePerKgPerDay: rate,
-        estimatedCost: estimate
-      },
-      select: bookingSelect
-    });
-    await writeAuditLog(tx, {
-      actorId: farmerId,
-      action: "BOOKING_CREATED",
-      entityType: "Booking",
-      entityId: created.id,
-      after: { lotCode: created.lotCode, quantityKg, status: created.status },
-      ip
-    });
-    return toBooking(created);
-  });
-};
-var loadBookingForActor = async (bookingId, actor) => {
-  const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, deletedAt: null },
-    select: bookingSelect
-  });
-  if (!booking) {
-    throw new AppError(404, "Booking not found");
-  }
-  const isFarmer = booking.farmer.id === actor.id;
-  const isOwner = booking.chamber.warehouse.ownerId === actor.id;
-  const isAdmin = actor.role === "ADMIN";
-  if (!isFarmer && !isOwner && !isAdmin) {
-    throw new AppError(403, "You do not have access to this booking");
-  }
-  return booking;
-};
-var getBookingByIdFromDb = async (bookingId, actor) => toBooking(await loadBookingForActor(bookingId, actor));
-var getMyBookingsFromDb = async (farmerId, filters) => {
-  const pagination = buildPagination(filters, BOOKING_SORT_FIELDS, "createdAt");
-  const where = {
-    farmerId,
-    deletedAt: null,
-    ...filters.status === void 0 ? {} : { status: filters.status }
-  };
-  const [rows, total] = await Promise.all([
-    prisma.booking.findMany({
-      where,
-      select: bookingSelect,
-      orderBy: pagination.orderBy,
-      skip: pagination.skip,
-      take: pagination.take
-    }),
-    prisma.booking.count({ where })
-  ]);
-  return { data: rows.map(toBooking), meta: buildMeta(pagination.page, pagination.limit, total) };
-};
-var getAllBookingsFromDb = async (filters) => {
-  const pagination = buildPagination(filters, BOOKING_SORT_FIELDS, "createdAt");
-  const where = {
-    deletedAt: null,
-    ...filters.status === void 0 ? {} : { status: filters.status }
-  };
-  const [rows, total] = await Promise.all([
-    prisma.booking.findMany({
-      where,
-      select: bookingSelect,
-      orderBy: pagination.orderBy,
-      skip: pagination.skip,
-      take: pagination.take
-    }),
-    prisma.booking.count({ where })
-  ]);
-  return { data: rows.map(toBooking), meta: buildMeta(pagination.page, pagination.limit, total) };
-};
-var getWarehouseBookingsFromDb = async (warehouseId, ownerId, filters) => {
-  const warehouse = await prisma.warehouse.findFirst({
-    where: { id: warehouseId, deletedAt: null },
-    select: { ownerId: true }
-  });
-  if (!warehouse) {
-    throw new AppError(404, "Warehouse not found");
-  }
-  if (warehouse.ownerId !== ownerId) {
-    throw new AppError(403, "You can only view bookings for warehouses that belong to you");
-  }
-  const pagination = buildPagination(filters, BOOKING_SORT_FIELDS, "createdAt");
-  const where = {
-    deletedAt: null,
-    chamber: { warehouseId },
-    ...filters.status === void 0 ? {} : { status: filters.status }
-  };
-  const [rows, total] = await Promise.all([
-    prisma.booking.findMany({
-      where,
-      select: bookingSelect,
-      orderBy: pagination.orderBy,
-      skip: pagination.skip,
-      take: pagination.take
-    }),
-    prisma.booking.count({ where })
-  ]);
-  return { data: rows.map(toBooking), meta: buildMeta(pagination.page, pagination.limit, total) };
-};
-var assertWarehouseOwner = (booking, actorId) => {
-  if (booking.chamber.warehouse.ownerId !== actorId) {
-    throw new AppError(403, "You can only manage bookings for warehouses that belong to you");
-  }
-};
-var transition = async (booking, next, actorId, action, extraData, ip) => {
-  assertTransition(booking.status, next);
-  return prisma.$transaction(async (tx) => {
-    const updated = await tx.booking.update({
-      where: { id: booking.id },
-      data: { status: next, ...extraData },
-      select: bookingSelect
-    });
-    await writeAuditLog(tx, {
-      actorId,
-      action,
-      entityType: "Booking",
-      entityId: booking.id,
-      before: { status: booking.status },
-      after: { status: updated.status },
-      ip
-    });
-    return toBooking(updated);
-  });
-};
-var approveBookingDb = async (bookingId, actor, ip) => {
-  const booking = await loadBookingForActor(bookingId, actor);
-  assertWarehouseOwner(booking, actor.id);
-  const holdExpiresAt = new Date(Date.now() + HOLD_MINUTES * 60 * 1e3);
-  return transition(booking, "APPROVED", actor.id, "BOOKING_APPROVED", { holdExpiresAt }, ip);
-};
-var rejectBookingDb = async (bookingId, actor, reason2, ip) => {
-  const booking = await loadBookingForActor(bookingId, actor);
-  assertWarehouseOwner(booking, actor.id);
-  return transition(
-    booking,
-    "REJECTED",
-    actor.id,
-    "BOOKING_REJECTED",
-    { cancelReason: reason2 ?? null },
-    ip
-  );
-};
-var cancelBookingDb = async (bookingId, actor, reason2, ip) => {
-  const booking = await loadBookingForActor(bookingId, actor);
-  if (booking.farmer.id !== actor.id) {
-    throw new AppError(403, "Only the farmer who created this booking can cancel it");
-  }
-  return transition(
-    booking,
-    "CANCELLED",
-    actor.id,
-    "BOOKING_CANCELLED",
-    { cancelReason: reason2 ?? null },
-    ip
-  );
-};
-var storeBookingDb = async (bookingId, actor, ip) => {
-  const booking = await loadBookingForActor(bookingId, actor);
-  assertWarehouseOwner(booking, actor.id);
-  const inspection = await prisma.inspection.findUnique({
-    where: { bookingId },
-    select: { grade: true }
-  });
-  if (inspection?.grade === "REJECTED") {
-    throw new AppError(
-      409,
-      "This lot failed quality inspection and cannot be stored. Cancel and refund it instead."
-    );
-  }
-  return transition(
-    booking,
-    "STORED",
-    actor.id,
-    "BOOKING_STORED",
-    { storedAt: /* @__PURE__ */ new Date() },
-    ip
-  );
-};
-var requestWithdrawalDb = async (bookingId, actor, ip) => {
-  const booking = await loadBookingForActor(bookingId, actor);
-  if (booking.farmer.id !== actor.id) {
-    throw new AppError(403, "Only the farmer who owns this lot can request withdrawal");
-  }
-  return transition(booking, "WITHDRAW_REQUESTED", actor.id, "BOOKING_WITHDRAW_REQUESTED", {}, ip);
-};
-var completeBookingDb = async (bookingId, actor, ip) => {
-  const booking = await loadBookingForActor(bookingId, actor);
-  assertWarehouseOwner(booking, actor.id);
-  const warehouse = await prisma.warehouse.findUniqueOrThrow({
-    where: { id: booking.chamber.warehouse.id },
-    select: { minBookingDays: true }
-  });
-  const payment = await prisma.payment.findUnique({
-    where: { bookingId },
-    select: { amountBdt: true, status: true }
-  });
-  const alreadyPaidBdt = payment !== null && payment.status === "SUCCEEDED" ? Number(payment.amountBdt) : 0;
-  const withdrawnAt = /* @__PURE__ */ new Date();
-  const storedAt = booking.storedAt ?? booking.startDate;
-  const settlement = settleBooking({
-    quantityKg: booking.quantityKg,
-    ratePerKgPerDay: Number(booking.ratePerKgPerDay),
-    bookedDays: inclusiveDays(booking.startDate, booking.endDate),
-    actualDays: Math.max(1, inclusiveDays(storedAt, withdrawnAt)),
-    minBookingDays: warehouse.minBookingDays,
-    alreadyPaidBdt
-  });
-  return transition(
-    booking,
-    "COMPLETED",
-    actor.id,
-    "BOOKING_COMPLETED",
-    { withdrawnAt, finalCost: settlement.finalCost },
-    ip
-  );
-};
-var getBookingInvoiceFromDb = async (bookingId, actor) => {
-  const booking = await loadBookingForActor(bookingId, actor);
-  const warehouse = await prisma.warehouse.findUniqueOrThrow({
-    where: { id: booking.chamber.warehouse.id },
-    select: { minBookingDays: true }
-  });
-  const payment = await prisma.payment.findUnique({
-    where: { bookingId },
-    select: { id: true, status: true, amountBdt: true, amount: true, currency: true, fxRate: true, paidAt: true }
-  });
-  const paidBdt = payment !== null && payment.status === "SUCCEEDED" ? Number(payment.amountBdt) : 0;
-  const bookedDays = inclusiveDays(booking.startDate, booking.endDate);
-  const storedAt = booking.storedAt;
-  const endedAt = booking.withdrawnAt ?? /* @__PURE__ */ new Date();
-  const actualDays = storedAt === null ? null : Math.max(1, inclusiveDays(storedAt, endedAt));
-  const settlement = actualDays === null ? null : settleBooking({
-    quantityKg: booking.quantityKg,
-    ratePerKgPerDay: Number(booking.ratePerKgPerDay),
-    bookedDays,
-    actualDays,
-    minBookingDays: warehouse.minBookingDays,
-    alreadyPaidBdt: paidBdt
-  });
-  return {
-    booking: toBooking(booking),
-    charges: {
-      quantityKg: booking.quantityKg,
-      ratePerKgPerDay: Number(booking.ratePerKgPerDay),
-      bookedDays,
-      minBookingDays: warehouse.minBookingDays,
-      estimatedCostBdt: Number(booking.estimatedCost),
-      actualDaysStored: actualDays,
-      settlement,
-      finalCostBdt: booking.finalCost === null ? null : Number(booking.finalCost)
-    },
-    payment: payment === null ? null : {
-      id: payment.id,
-      status: payment.status,
-      amountBdt: Number(payment.amountBdt),
-      amountCharged: Number(payment.amount),
-      currency: payment.currency,
-      fxRate: Number(payment.fxRate),
-      paidAt: payment.paidAt
-    },
-    balanceBdt: (() => {
-      if (booking.finalCost !== null) {
-        return Number(booking.finalCost) - paidBdt;
-      }
-      if (settlement !== null) {
-        return settlement.balance;
-      }
-      return Number(booking.estimatedCost) - paidBdt;
-    })()
-  };
-};
-var bookingService = {
-  getBookingInvoiceFromDb,
-  createBookingDb,
-  getBookingByIdFromDb,
-  getMyBookingsFromDb,
-  getAllBookingsFromDb,
-  getWarehouseBookingsFromDb,
-  approveBookingDb,
-  rejectBookingDb,
-  cancelBookingDb,
-  storeBookingDb,
-  requestWithdrawalDb,
-  completeBookingDb
-};
-
-// src/modules/booking/booking.controller.ts
-var actorOf = (req) => ({
-  id: req.user.id,
-  role: req.user.role
-});
-var createBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.createBookingDb(
-    req.user.id,
-    req.body,
-    req.ip
-  );
-  sendResponse(res, {
-    statusCode: 201,
-    message: "Booking created. The warehouse owner must approve it before payment.",
-    data
-  });
-});
-var getMyBookings = catchAsync(async (req, res) => {
-  const filters = validatedQuery(res);
-  const { data, meta } = await bookingService.getMyBookingsFromDb(req.user.id, filters);
-  sendResponse(res, { statusCode: 200, message: "Bookings retrieved successfully", data, meta });
-});
-var getAllBookings = catchAsync(async (_req, res) => {
-  const filters = validatedQuery(res);
-  const { data, meta } = await bookingService.getAllBookingsFromDb(filters);
-  sendResponse(res, { statusCode: 200, message: "All bookings retrieved successfully", data, meta });
-});
-var getBookingById = catchAsync(async (req, res) => {
-  const data = await bookingService.getBookingByIdFromDb(String(req.params.id), actorOf(req));
-  sendResponse(res, { statusCode: 200, message: "Booking retrieved successfully", data });
-});
-var getWarehouseBookings = catchAsync(async (req, res) => {
-  const filters = validatedQuery(res);
-  const { data, meta } = await bookingService.getWarehouseBookingsFromDb(
-    String(req.params.id),
-    req.user.id,
-    filters
-  );
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Warehouse bookings retrieved successfully",
-    data,
-    meta
-  });
-});
-var approveBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.approveBookingDb(String(req.params.id), actorOf(req), req.ip);
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Booking approved. The farmer must pay before the hold expires.",
-    data
-  });
-});
-var rejectBooking = catchAsync(async (req, res) => {
-  const { reason: reason2 } = req.body;
-  const data = await bookingService.rejectBookingDb(
-    String(req.params.id),
-    actorOf(req),
-    reason2,
-    req.ip
-  );
-  sendResponse(res, { statusCode: 200, message: "Booking rejected", data });
-});
-var cancelBooking = catchAsync(async (req, res) => {
-  const { reason: reason2 } = req.body;
-  const data = await bookingService.cancelBookingDb(
-    String(req.params.id),
-    actorOf(req),
-    reason2,
-    req.ip
-  );
-  sendResponse(res, { statusCode: 200, message: "Booking cancelled", data });
-});
-var storeBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.storeBookingDb(String(req.params.id), actorOf(req), req.ip);
-  sendResponse(res, { statusCode: 200, message: "Lot marked as stored", data });
-});
-var requestWithdrawal = catchAsync(async (req, res) => {
-  const data = await bookingService.requestWithdrawalDb(String(req.params.id), actorOf(req), req.ip);
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Withdrawal requested. The warehouse owner will confirm release.",
-    data
-  });
-});
-var completeBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.completeBookingDb(String(req.params.id), actorOf(req), req.ip);
-  sendResponse(res, {
-    statusCode: 200,
-    message: `Lot released. Final cost is ${data.finalCost} BDT.`,
-    data
-  });
-});
-var getBookingInvoice = catchAsync(async (req, res) => {
-  const data = await bookingService.getBookingInvoiceFromDb(String(req.params.id), actorOf(req));
-  sendResponse(res, { statusCode: 200, message: "Invoice retrieved successfully", data });
-});
-var bookingController = {
-  getBookingInvoice,
-  createBooking,
-  getMyBookings,
-  getAllBookings,
-  getBookingById,
-  getWarehouseBookings,
-  approveBooking,
-  rejectBooking,
-  cancelBooking,
-  storeBooking,
-  requestWithdrawal,
-  completeBooking
-};
-
-// src/modules/inspection/inspection.service.ts
-var inspectionSelect = {
-  id: true,
-  grade: true,
-  moisturePct: true,
-  actualQtyKg: true,
-  notes: true,
-  inspectedAt: true,
-  inspector: { select: { id: true, name: true } },
-  booking: {
-    select: {
-      id: true,
-      lotCode: true,
-      status: true,
-      quantityKg: true,
-      farmer: { select: { id: true, name: true } },
-      chamber: {
-        select: { warehouse: { select: { id: true, name: true, ownerId: true } } }
-      }
-    }
-  }
-};
-var toInspection = (row) => ({
-  id: row.id,
-  grade: row.grade,
-  moisturePct: row.moisturePct === null ? null : Number(row.moisturePct),
-  actualQtyKg: row.actualQtyKg,
-  notes: row.notes,
-  inspectedAt: row.inspectedAt,
-  inspector: row.inspector,
-  booking: {
-    id: row.booking.id,
-    lotCode: row.booking.lotCode,
-    status: row.booking.status,
-    quantityKg: row.booking.quantityKg,
-    farmer: row.booking.farmer,
-    warehouse: {
-      id: row.booking.chamber.warehouse.id,
-      name: row.booking.chamber.warehouse.name
-    }
-  }
-});
-var createInspectionDb = async (bookingId, inspectorId, payload, ip) => {
-  const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, deletedAt: null },
-    select: { id: true, lotCode: true, status: true, quantityKg: true }
-  });
-  if (!booking) {
-    throw new AppError(404, "Booking not found");
-  }
-  if (booking.status !== "PAID") {
-    throw new AppError(
-      409,
-      `Intake inspection is only possible on a PAID booking. This one is ${booking.status}.`
-    );
-  }
-  const existing = await prisma.inspection.findUnique({
-    where: { bookingId },
-    select: { id: true }
-  });
-  if (existing) {
-    throw new AppError(409, "This lot has already been inspected");
-  }
-  if (payload.grade === "REJECTED") {
-    assertTransition(booking.status, "CANCELLED");
-  }
-  return prisma.$transaction(async (tx) => {
-    if (payload.grade === "REJECTED") {
-      await tx.booking.update({
-        where: { id: bookingId },
-        data: {
-          status: "CANCELLED",
-          cancelReason: "Failed intake quality inspection"
-        }
-      });
-    }
-    const created = await tx.inspection.create({
-      data: {
-        bookingId,
-        inspectorId,
-        grade: payload.grade,
-        actualQtyKg: payload.actualQtyKg,
-        ...payload.moisturePct === void 0 ? {} : { moisturePct: payload.moisturePct },
-        ...payload.notes === void 0 ? {} : { notes: payload.notes }
-      },
-      select: inspectionSelect
-    });
-    await writeAuditLog(tx, {
-      actorId: inspectorId,
-      action: "INSPECTION_RECORDED",
-      entityType: "Booking",
-      entityId: bookingId,
-      after: {
-        grade: payload.grade,
-        actualQtyKg: payload.actualQtyKg,
-        declaredQtyKg: booking.quantityKg
-      },
-      ip
-    });
-    if (payload.grade === "REJECTED") {
-      await writeAuditLog(tx, {
-        actorId: inspectorId,
-        action: "BOOKING_CANCELLED",
-        entityType: "Booking",
-        entityId: bookingId,
-        before: { status: booking.status },
-        after: { status: "CANCELLED", reason: "Failed intake quality inspection" },
-        ip
-      });
-    }
-    return toInspection(created);
-  });
-};
-var getInspectionsFromDb = async (filters) => {
-  const pagination = buildPagination(filters, ["inspectedAt"], "inspectedAt");
-  const where = {};
-  if (filters.grade !== void 0) where.grade = filters.grade;
-  if (filters.bookingId !== void 0) where.bookingId = filters.bookingId;
-  const [rows, total] = await Promise.all([
-    prisma.inspection.findMany({
-      where,
-      select: inspectionSelect,
-      orderBy: pagination.orderBy,
-      skip: pagination.skip,
-      take: pagination.take
-    }),
-    prisma.inspection.count({ where })
-  ]);
-  return { data: rows.map(toInspection), meta: buildMeta(pagination.page, pagination.limit, total) };
-};
-var getInspectionByIdFromDb = async (id, actor) => {
-  const row = await prisma.inspection.findUnique({
-    where: { id },
-    select: inspectionSelect
-  });
-  if (!row) {
-    throw new AppError(404, "Inspection not found");
-  }
-  const isAdmin = actor.role === "ADMIN";
-  const isFarmer = row.booking.farmer.id === actor.id;
-  const isOwner = row.booking.chamber.warehouse.ownerId === actor.id;
-  if (!isAdmin && !isFarmer && !isOwner) {
-    throw new AppError(403, "You do not have access to this inspection");
-  }
-  return toInspection(row);
-};
-var inspectionService = {
-  createInspectionDb,
-  getInspectionsFromDb,
-  getInspectionByIdFromDb
-};
-
-// src/modules/inspection/inspection.controller.ts
-var createInspection = catchAsync(async (req, res) => {
-  const data = await inspectionService.createInspectionDb(
-    String(req.params.id),
-    req.user.id,
-    req.body,
-    req.ip
-  );
-  const message = data.grade === "REJECTED" ? "Inspection recorded. The lot failed and the booking has been cancelled for refund." : `Inspection recorded with grade ${data.grade}. The lot can now be stored.`;
-  sendResponse(res, { statusCode: 201, message, data });
-});
-var getInspections = catchAsync(async (_req, res) => {
-  const filters = validatedQuery(res);
-  const { data, meta } = await inspectionService.getInspectionsFromDb(filters);
-  sendResponse(res, { statusCode: 200, message: "Inspections retrieved successfully", data, meta });
-});
-var getInspectionById = catchAsync(async (req, res) => {
-  const data = await inspectionService.getInspectionByIdFromDb(String(req.params.id), {
-    id: req.user.id,
-    role: req.user.role
-  });
-  sendResponse(res, { statusCode: 200, message: "Inspection retrieved successfully", data });
-});
-var inspectionController = {
-  createInspection,
-  getInspections,
-  getInspectionById
-};
-
-// src/modules/inspection/inspection.validation.ts
-import { z as z4 } from "zod";
-var INSPECTION_GRADES = ["A", "B", "C", "REJECTED"];
-var createInspectionSchema = z4.object({
-  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) }),
-  body: z4.object({
-    grade: z4.enum(INSPECTION_GRADES, {
-      error: "grade must be A, B, C or REJECTED"
-    }),
-    actualQtyKg: z4.coerce.number({ error: "actualQtyKg must be a number" }).int({ error: "actualQtyKg must be a whole number" }).positive({ error: "actualQtyKg must be greater than zero" }).max(1e7, { error: "actualQtyKg is unrealistically large" }),
-    moisturePct: z4.coerce.number({ error: "moisturePct must be a number" }).min(0, { error: "moisturePct cannot be negative" }).max(100, { error: "moisturePct cannot exceed 100" }).optional(),
-    notes: z4.string().trim().min(3).max(500).optional()
-  }).strict()
-});
-var listInspectionsSchema = z4.object({
-  query: z4.object({
-    grade: z4.enum(INSPECTION_GRADES).optional(),
-    bookingId: z4.uuid({ error: "bookingId must be a valid uuid" }).optional(),
-    sortOrder: z4.enum(["asc", "desc"]).optional(),
-    page: z4.coerce.number().int().positive().optional(),
-    limit: z4.coerce.number().int().positive().max(100).optional()
-  }).strict()
-});
-var inspectionIdSchema = z4.object({
-  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) })
-});
-
-// src/modules/admin/admin.validation.ts
-import { z as z5 } from "zod";
-var USER_SORT_FIELDS = ["createdAt", "name", "email", "role"];
-var updateWarehouseStatusSchema = z5.object({
-  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) }),
-  body: z5.object({
-    status: z5.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"], {
-      error: "status must be PENDING, APPROVED, REJECTED or SUSPENDED"
-    }),
-    reason: z5.string().trim().min(3).max(255).optional()
-  }).strict()
-});
-var listUsersSchema = z5.object({
-  query: z5.object({
-    search: z5.string().trim().min(1).optional(),
-    role: z5.enum(["FARMER", "WAREHOUSE_OWNER", "ADMIN"]).optional(),
-    status: z5.enum(["ACTIVE", "BANNED"]).optional(),
-    verified: z5.enum(["true", "false"]).optional(),
-    includeDeleted: z5.enum(["true", "false"]).optional(),
-    sortBy: z5.enum(USER_SORT_FIELDS).optional(),
-    sortOrder: z5.enum(["asc", "desc"]).optional(),
-    page: z5.coerce.number().int().positive().optional(),
-    limit: z5.coerce.number().int().positive().max(100).optional()
-  }).strict()
-});
-var userIdSchema = z5.object({
-  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) })
-});
-var updateUserStatusSchema = z5.object({
-  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) }),
-  body: z5.object({
-    status: z5.enum(["ACTIVE", "BANNED"], { error: "status must be ACTIVE or BANNED" }),
-    reason: z5.string().trim().min(3).max(255).optional()
-  }).strict()
-});
-var updateUserRoleSchema = z5.object({
-  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) }),
-  body: z5.object({
-    role: z5.enum(["FARMER", "WAREHOUSE_OWNER", "ADMIN"], {
-      error: "role must be FARMER, WAREHOUSE_OWNER or ADMIN"
-    }),
-    reason: z5.string().trim().min(3).max(255).optional()
-  }).strict()
-});
-var listAuditLogsSchema = z5.object({
-  query: z5.object({
-    entityType: z5.string().trim().min(1).max(40).optional(),
-    entityId: z5.uuid({ error: "entityId must be a valid uuid" }).optional(),
-    actorId: z5.uuid({ error: "actorId must be a valid uuid" }).optional(),
-    action: z5.string().trim().min(1).max(60).optional(),
-    sortOrder: z5.enum(["asc", "desc"]).optional(),
-    page: z5.coerce.number().int().positive().optional(),
-    limit: z5.coerce.number().int().positive().max(100).optional()
-  }).strict()
-});
-
-// src/modules/admin/admin.service.ts
-var adminUserSelect = {
-  id: true,
-  name: true,
-  email: true,
-  phone: true,
-  role: true,
-  status: true,
-  password: true,
-  googleId: true,
-  emailVerifiedAt: true,
-  deletedAt: true,
-  createdAt: true,
-  ownerProfile: { select: { id: true } }
-};
-var toAdminUser = (row) => ({
-  id: row.id,
-  name: row.name,
-  email: row.email,
-  phone: row.phone,
-  role: row.role,
-  status: row.status,
-  emailVerified: row.emailVerifiedAt !== null,
-  hasPassword: row.password !== null,
-  linkedGoogle: row.googleId !== null,
-  profileComplete: row.role === "WAREHOUSE_OWNER" ? row.ownerProfile !== null : true,
-  deletedAt: row.deletedAt,
-  createdAt: row.createdAt
-});
-var updateWarehouseStatusDb = async (warehouseId, adminId, payload, ip) => {
-  const warehouse = await prisma.warehouse.findFirst({
-    where: { id: warehouseId, deletedAt: null },
-    select: { id: true, name: true, status: true }
-  });
-  if (!warehouse) {
-    throw new AppError(404, "Warehouse not found");
-  }
-  if (warehouse.status === payload.status) {
-    throw new AppError(409, `This warehouse is already ${payload.status}`);
-  }
-  return prisma.$transaction(async (tx) => {
-    const next = await tx.warehouse.update({
-      where: { id: warehouseId },
-      data: { status: payload.status },
-      select: { id: true, name: true, status: true }
-    });
-    await writeAuditLog(tx, {
-      actorId: adminId,
-      action: "WAREHOUSE_STATUS_CHANGED",
-      entityType: "Warehouse",
-      entityId: warehouseId,
-      before: { status: warehouse.status },
-      after: { status: next.status, reason: payload.reason ?? null },
-      ip
-    });
-    return next;
-  });
-};
-var getUsersFromDb = async (filters) => {
-  const pagination = buildPagination(filters, USER_SORT_FIELDS, "createdAt");
-  const where = {};
-  if (filters.includeDeleted !== "true") {
-    where.deletedAt = null;
-  }
-  if (filters.role !== void 0) where.role = filters.role;
-  if (filters.status !== void 0) where.status = filters.status;
-  if (filters.verified !== void 0) {
-    where.emailVerifiedAt = filters.verified === "true" ? { not: null } : null;
-  }
-  if (filters.search !== void 0) {
-    where.OR = [
-      { name: { contains: filters.search, mode: "insensitive" } },
-      { email: { contains: filters.search, mode: "insensitive" } }
-    ];
-  }
-  const [rows, total] = await Promise.all([
-    prisma.user.findMany({
-      where,
-      select: adminUserSelect,
-      orderBy: pagination.orderBy,
-      skip: pagination.skip,
-      take: pagination.take
-    }),
-    prisma.user.count({ where })
-  ]);
-  return {
-    data: rows.map(toAdminUser),
-    meta: buildMeta(pagination.page, pagination.limit, total)
-  };
-};
-var getUserByIdFromDb = async (id) => {
-  const row = await prisma.user.findUnique({
-    where: { id },
-    select: {
-      ...adminUserSelect,
-      farmerProfile: {
-        select: { district: true, upazila: true, nid: true, farmSizeAcre: true }
-      },
-      ownerProfile: {
-        select: {
-          id: true,
-          businessName: true,
-          tradeLicenseNo: true,
-          nid: true,
-          district: true,
-          address: true
-        }
-      },
-      _count: { select: { warehouses: true, bookings: true } }
-    }
-  });
-  if (!row) {
-    throw new AppError(404, "User not found");
-  }
-  const { farmerProfile, ownerProfile, _count, ...base } = row;
-  return {
-    ...toAdminUser({ ...base, ownerProfile: ownerProfile === null ? null : { id: ownerProfile.id } }),
-    farmerProfile: farmerProfile === null ? null : {
-      district: farmerProfile.district,
-      upazila: farmerProfile.upazila,
-      nid: farmerProfile.nid,
-      farmSizeAcre: farmerProfile.farmSizeAcre === null ? null : Number(farmerProfile.farmSizeAcre)
-    },
-    ownerProfile: ownerProfile === null ? null : {
-      businessName: ownerProfile.businessName,
-      tradeLicenseNo: ownerProfile.tradeLicenseNo,
-      nid: ownerProfile.nid,
-      district: ownerProfile.district,
-      address: ownerProfile.address
-    },
-    counts: { warehouses: _count.warehouses, bookings: _count.bookings }
-  };
-};
-var loadTargetUser = async (id, adminId) => {
-  if (id === adminId) {
-    throw new AppError(403, "You cannot change your own account through the admin API");
-  }
-  const target = await prisma.user.findUnique({
-    where: { id },
-    select: { id: true, name: true, email: true, role: true, status: true, deletedAt: true }
-  });
-  if (!target || target.deletedAt !== null) {
-    throw new AppError(404, "User not found");
-  }
-  if (target.role === "ADMIN") {
-    throw new AppError(403, "Admin accounts cannot be modified through this API");
-  }
-  return target;
-};
-var updateUserStatusDb = async (id, adminId, payload, ip) => {
-  const target = await loadTargetUser(id, adminId);
-  if (target.status === payload.status) {
-    throw new AppError(409, `This account is already ${payload.status}`);
-  }
-  return prisma.$transaction(async (tx) => {
-    const next = await tx.user.update({
-      where: { id },
-      data: { status: payload.status },
-      select: { id: true, name: true, email: true, role: true, status: true }
-    });
-    await writeAuditLog(tx, {
-      actorId: adminId,
-      action: payload.status === "BANNED" ? "USER_BANNED" : "USER_UNBANNED",
-      entityType: "User",
-      entityId: id,
-      before: { status: target.status },
-      after: { status: next.status, reason: payload.reason ?? null },
-      ip
-    });
-    return next;
-  });
-};
-var updateUserRoleDb = async (id, adminId, payload, ip) => {
-  const target = await loadTargetUser(id, adminId);
-  if (target.role === payload.role) {
-    throw new AppError(409, `This account is already a ${payload.role}`);
-  }
-  if (target.role === "WAREHOUSE_OWNER") {
-    const warehouses = await prisma.warehouse.count({
-      where: { ownerId: id, deletedAt: null }
-    });
-    if (warehouses > 0) {
-      throw new AppError(
-        409,
-        `Cannot change this role while the account still owns ${warehouses} warehouse(s)`
-      );
-    }
-  }
-  if (target.role === "FARMER") {
-    const activeBookings = await prisma.booking.count({
-      where: {
-        farmerId: id,
-        deletedAt: null,
-        status: { in: ["PENDING_APPROVAL", "APPROVED", "PAID", "STORED", "WITHDRAW_REQUESTED"] }
-      }
-    });
-    if (activeBookings > 0) {
-      throw new AppError(
-        409,
-        `Cannot change this role while the account has ${activeBookings} active booking(s)`
-      );
-    }
-  }
-  return prisma.$transaction(async (tx) => {
-    const next = await tx.user.update({
-      where: { id },
-      data: { role: payload.role },
-      select: { id: true, name: true, email: true, role: true, status: true }
-    });
-    await writeAuditLog(tx, {
-      actorId: adminId,
-      action: "USER_ROLE_CHANGED",
-      entityType: "User",
-      entityId: id,
-      before: { role: target.role },
-      after: { role: next.role, reason: payload.reason ?? null },
-      ip
-    });
-    return next;
-  });
-};
-var getAuditLogsFromDb = async (filters) => {
-  const pagination = buildPagination(filters, ["createdAt"], "createdAt");
-  const where = {};
-  if (filters.entityType !== void 0) where.entityType = filters.entityType;
-  if (filters.entityId !== void 0) where.entityId = filters.entityId;
-  if (filters.actorId !== void 0) where.actorId = filters.actorId;
-  if (filters.action !== void 0) {
-    where.action = { contains: filters.action, mode: "insensitive" };
-  }
-  const [rows, total] = await Promise.all([
-    prisma.auditLog.findMany({
-      where,
-      select: {
-        id: true,
-        action: true,
-        entityType: true,
-        entityId: true,
-        before: true,
-        after: true,
-        ip: true,
-        createdAt: true,
-        actor: { select: { id: true, name: true, role: true } }
-      },
-      orderBy: pagination.orderBy,
-      skip: pagination.skip,
-      take: pagination.take
-    }),
-    prisma.auditLog.count({ where })
-  ]);
-  return {
-    data: rows,
-    meta: buildMeta(pagination.page, pagination.limit, total)
-  };
-};
-var getPlatformStatsFromDb = async () => {
-  const [
-    totalUsers,
-    activeUsers,
-    bannedUsers,
-    deletedUsers,
-    unverifiedUsers,
-    usersByRole,
-    totalWarehouses,
-    warehousesByStatus,
-    chambers,
-    totalBookings,
-    bookingsByStatus,
-    payments,
-    districts
-  ] = await Promise.all([
-    prisma.user.count({ where: { deletedAt: null } }),
-    prisma.user.count({ where: { deletedAt: null, status: "ACTIVE" } }),
-    prisma.user.count({ where: { deletedAt: null, status: "BANNED" } }),
-    prisma.user.count({ where: { deletedAt: { not: null } } }),
-    prisma.user.count({ where: { deletedAt: null, emailVerifiedAt: null } }),
-    prisma.user.groupBy({ by: ["role"], where: { deletedAt: null }, _count: true }),
-    prisma.warehouse.count({ where: { deletedAt: null } }),
-    prisma.warehouse.groupBy({ by: ["status"], where: { deletedAt: null }, _count: true }),
-    prisma.chamber.aggregate({
-      where: { deletedAt: null },
-      _count: true,
-      _sum: { capacityKg: true }
-    }),
-    prisma.booking.count({ where: { deletedAt: null } }),
-    prisma.booking.groupBy({ by: ["status"], where: { deletedAt: null }, _count: true }),
-    prisma.payment.aggregate({
-      where: { status: "SUCCEEDED" },
-      _count: true,
-      _sum: { amountBdt: true }
-    }),
-    prisma.warehouse.groupBy({
-      by: ["district"],
-      where: { deletedAt: null, status: "APPROVED" },
-      _count: true
-    })
-  ]);
-  return {
-    users: {
-      total: totalUsers,
-      active: activeUsers,
-      banned: bannedUsers,
-      deleted: deletedUsers,
-      unverified: unverifiedUsers,
-      byRole: Object.fromEntries(usersByRole.map((row) => [row.role, row._count]))
-    },
-    warehouses: {
-      total: totalWarehouses,
-      byStatus: Object.fromEntries(warehousesByStatus.map((row) => [row.status, row._count]))
-    },
-    chambers: {
-      total: chambers._count,
-      totalCapacityKg: chambers._sum.capacityKg ?? 0
-    },
-    bookings: {
-      total: totalBookings,
-      byStatus: Object.fromEntries(bookingsByStatus.map((row) => [row.status, row._count]))
-    },
-    payments: {
-      succeeded: payments._count,
-      revenueBdt: Number(payments._sum.amountBdt ?? 0)
-    },
-    topDistricts: districts.map((row) => ({ district: row.district, warehouses: row._count })).sort((a, b) => b.warehouses - a.warehouses).slice(0, 5)
-  };
-};
-var adminService = {
-  updateWarehouseStatusDb,
-  getUsersFromDb,
-  getUserByIdFromDb,
-  updateUserStatusDb,
-  updateUserRoleDb,
-  getAuditLogsFromDb,
-  getPlatformStatsFromDb
-};
-
-// src/modules/admin/admin.controller.ts
-var updateWarehouseStatus = catchAsync(async (req, res) => {
-  const data = await adminService.updateWarehouseStatusDb(
-    String(req.params.id),
-    req.user.id,
-    req.body,
-    req.ip
-  );
-  sendResponse(res, {
-    statusCode: 200,
-    message: `Warehouse status changed to ${data.status}`,
-    data
-  });
-});
-var getUsers = catchAsync(async (_req, res) => {
-  const filters = validatedQuery(res);
-  const { data, meta } = await adminService.getUsersFromDb(filters);
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Users retrieved successfully",
-    data,
-    meta
-  });
-});
-var getUserById = catchAsync(async (req, res) => {
-  const data = await adminService.getUserByIdFromDb(String(req.params.id));
-  sendResponse(res, {
-    statusCode: 200,
-    message: "User retrieved successfully",
-    data
-  });
-});
-var updateUserStatus = catchAsync(async (req, res) => {
-  const data = await adminService.updateUserStatusDb(
-    String(req.params.id),
-    req.user.id,
-    req.body,
-    req.ip
-  );
-  sendResponse(res, {
-    statusCode: 200,
-    message: `Account is now ${data.status}`,
-    data
-  });
-});
-var updateUserRole = catchAsync(async (req, res) => {
-  const data = await adminService.updateUserRoleDb(
-    String(req.params.id),
-    req.user.id,
-    req.body,
-    req.ip
-  );
-  sendResponse(res, {
-    statusCode: 200,
-    message: `Role changed to ${data.role}`,
-    data
-  });
-});
-var getAuditLogs = catchAsync(async (_req, res) => {
-  const filters = validatedQuery(res);
-  const { data, meta } = await adminService.getAuditLogsFromDb(filters);
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Audit logs retrieved successfully",
-    data,
-    meta
-  });
-});
-var getStats = catchAsync(async (_req, res) => {
-  const data = await adminService.getPlatformStatsFromDb();
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Platform statistics retrieved successfully",
-    data
-  });
-});
-var adminController = {
-  updateWarehouseStatus,
-  getUsers,
-  getUserById,
-  updateUserStatus,
-  updateUserRole,
-  getAuditLogs,
-  getStats
-};
-
-// src/modules/admin/admin.route.ts
-var router2 = Router2();
-router2.use(auth, authorize("ADMIN"));
-router2.get("/stats", adminController.getStats);
-router2.get("/bookings", validateRequest(listBookingsSchema), bookingController.getAllBookings);
-router2.post(
-  "/bookings/:id/inspection",
-  validateRequest(createInspectionSchema),
-  inspectionController.createInspection
-);
-router2.get("/audit-logs", validateRequest(listAuditLogsSchema), adminController.getAuditLogs);
-router2.get("/users", validateRequest(listUsersSchema), adminController.getUsers);
-router2.get("/users/:id", validateRequest(userIdSchema), adminController.getUserById);
-router2.patch(
-  "/users/:id/status",
-  validateRequest(updateUserStatusSchema),
-  adminController.updateUserStatus
-);
-router2.patch(
-  "/users/:id/role",
-  validateRequest(updateUserRoleSchema),
-  adminController.updateUserRole
-);
-router2.patch(
-  "/warehouses/:id/status",
-  validateRequest(updateWarehouseStatusSchema),
-  adminController.updateWarehouseStatus
-);
-var adminRoute = router2;
+router2.get("/google", authController.googleRedirect);
+router2.get("/google/callback", authController.googleCallback);
+var authRoute = router2;
 
 // src/modules/booking/booking.route.ts
 import { Router as Router3 } from "express";
@@ -2822,6 +3018,7 @@ router3.post(
   "/",
   auth,
   authorize("FARMER"),
+  bookingLimiter,
   validateRequest(createBookingSchema),
   bookingController.createBooking
 );
@@ -2895,7 +3092,13 @@ var DAILY_BREAKDOWN_MAX_DAYS = 92;
 var loadCropRange = async (cropTypeId) => {
   const crop = await prisma.cropType.findFirst({
     where: { id: cropTypeId, deletedAt: null },
-    select: { id: true, name: true, idealMinTempC: true, idealMaxTempC: true, maxStorageDays: true }
+    select: {
+      id: true,
+      name: true,
+      idealMinTempC: true,
+      idealMaxTempC: true,
+      maxStorageDays: true
+    }
   });
   if (!crop) {
     throw new AppError(404, "Crop type not found");
@@ -3016,9 +3219,7 @@ var getChamberAvailability = async (chamberId, window2) => {
   }
   const crop = window2.cropTypeId === void 0 ? null : await loadCropRange(window2.cropTypeId);
   const days = inclusiveDays(window2.startDate, window2.endDate);
-  const windows = (await competingBookings([chamberId], window2.startDate, window2.endDate)).get(
-    chamberId
-  ) ?? [];
+  const windows = (await competingBookings([chamberId], window2.startDate, window2.endDate)).get(chamberId) ?? [];
   const peakUsedKg = peakLoadKg(windows, window2.startDate, window2.endDate);
   const availableKg = Math.max(0, chamber.capacityKg - peakUsedKg);
   const chamberMin = Number(chamber.minTempC);
@@ -3181,6 +3382,7 @@ var createChamberDb = async (warehouseId, ownerId, payload) => {
     },
     select: chamberSelect
   });
+  await invalidateWarehouseCache(warehouseId);
   return toChamber(row);
 };
 var updateChamberDb = async (id, ownerId, payload) => {
@@ -3204,6 +3406,7 @@ var updateChamberDb = async (id, ownerId, payload) => {
   if (payload.maxTempC !== void 0) data.maxTempC = payload.maxTempC;
   if (payload.isActive !== void 0) data.isActive = payload.isActive;
   const row = await prisma.chamber.update({ where: { id }, data, select: chamberSelect });
+  await invalidateWarehouseCache(existing.warehouseId);
   return toChamber(row);
 };
 var softDeleteChamberDb = async (id, ownerId) => {
@@ -3229,6 +3432,7 @@ var softDeleteChamberDb = async (id, ownerId) => {
     );
   }
   await prisma.chamber.update({ where: { id }, data: { deletedAt: /* @__PURE__ */ new Date() } });
+  await invalidateWarehouseCache(existing.warehouseId);
 };
 var chamberService = {
   getChambersFromDb,
@@ -3419,6 +3623,7 @@ var getCropTypeByIdFromDb = async (id) => {
 };
 var createCropTypeDb = async (payload) => {
   const row = await prisma.cropType.create({ data: payload, select: cropTypeSelect });
+  await invalidateCropTypeCache();
   return toCropType(row);
 };
 var updateCropTypeDb = async (id, payload) => {
@@ -3440,6 +3645,7 @@ var updateCropTypeDb = async (id, payload) => {
   if (payload.idealMaxTempC !== void 0) data.idealMaxTempC = payload.idealMaxTempC;
   if (payload.maxStorageDays !== void 0) data.maxStorageDays = payload.maxStorageDays;
   const row = await prisma.cropType.update({ where: { id }, data, select: cropTypeSelect });
+  await invalidateCropTypeCache();
   return toCropType(row);
 };
 var softDeleteCropTypeDb = async (id) => {
@@ -3464,6 +3670,7 @@ var softDeleteCropTypeDb = async (id) => {
     );
   }
   await prisma.cropType.update({ where: { id }, data: { deletedAt: /* @__PURE__ */ new Date() } });
+  await invalidateCropTypeCache();
 };
 var cropTypeService = {
   getCropTypesFromDb,
@@ -3563,7 +3770,12 @@ var cropTypeIdSchema = z8.object({
 
 // src/modules/cropType/cropType.route.ts
 var router5 = Router5();
-router5.get("/", validateRequest(listCropTypesSchema), cropTypeController.getCropTypes);
+router5.get(
+  "/",
+  validateRequest(listCropTypesSchema),
+  cacheResponse(CACHE_TTL.cropTypes, (req) => cacheKeys.cropTypes(queryOf(req))),
+  cropTypeController.getCropTypes
+);
 router5.get("/:id", validateRequest(cropTypeIdSchema), cropTypeController.getCropTypeById);
 router5.post(
   "/",
@@ -3588,23 +3800,361 @@ router5.delete(
 );
 var cropTypeRoute = router5;
 
-// src/modules/inspection/inspection.route.ts
+// src/modules/farmer/farmer.route.ts
 import { Router as Router6 } from "express";
+
+// src/modules/farmer/farmer.service.ts
+var farmerProfileSelect = {
+  id: true,
+  district: true,
+  upazila: true,
+  nid: true,
+  farmSizeAcre: true,
+  createdAt: true,
+  updatedAt: true
+};
+var toFarmerProfile = (row) => ({
+  id: row.id,
+  district: row.district,
+  upazila: row.upazila,
+  nid: row.nid,
+  farmSizeAcre: row.farmSizeAcre === null ? null : Number(row.farmSizeAcre),
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt
+});
+var assertFarmer = (role) => {
+  if (role !== "FARMER") {
+    throw new AppError(403, "Only farmers have a farming profile");
+  }
+};
+var createFarmerProfileDb = async (userId, role, payload) => {
+  assertFarmer(role);
+  const existing = await prisma.farmerProfile.findUnique({
+    where: { userId },
+    select: { id: true }
+  });
+  if (existing) {
+    throw new AppError(
+      409,
+      "Your farming profile already exists. Use PATCH /api/v1/users/me/farmer-profile to update it."
+    );
+  }
+  const created = await prisma.farmerProfile.create({
+    data: {
+      userId,
+      district: payload.district,
+      upazila: payload.upazila ?? null,
+      nid: payload.nid ?? null,
+      farmSizeAcre: payload.farmSizeAcre ?? null
+    },
+    select: farmerProfileSelect
+  });
+  return toFarmerProfile(created);
+};
+var getFarmerProfileFromDb = async (userId, role) => {
+  assertFarmer(role);
+  const profile = await prisma.farmerProfile.findUnique({
+    where: { userId },
+    select: farmerProfileSelect
+  });
+  if (!profile) {
+    throw new AppError(404, "You have not created your farming profile yet");
+  }
+  return toFarmerProfile(profile);
+};
+var updateFarmerProfileDb = async (userId, role, payload) => {
+  assertFarmer(role);
+  const existing = await prisma.farmerProfile.findUnique({
+    where: { userId },
+    select: { id: true }
+  });
+  if (!existing) {
+    throw new AppError(
+      404,
+      "You have not created your farming profile yet. Use POST /api/v1/users/me/farmer-profile first."
+    );
+  }
+  const data = {};
+  if (payload.district !== void 0) data.district = payload.district;
+  if (payload.upazila !== void 0) data.upazila = payload.upazila;
+  if (payload.nid !== void 0) data.nid = payload.nid;
+  if (payload.farmSizeAcre !== void 0) data.farmSizeAcre = payload.farmSizeAcre;
+  const updated = await prisma.farmerProfile.update({
+    where: { userId },
+    data,
+    select: farmerProfileSelect
+  });
+  return toFarmerProfile(updated);
+};
+var farmerService = {
+  createFarmerProfileDb,
+  getFarmerProfileFromDb,
+  updateFarmerProfileDb
+};
+
+// src/modules/farmer/farmer.controller.ts
+var createFarmerProfile = catchAsync(async (req, res) => {
+  const current = req.user;
+  const profile = await farmerService.createFarmerProfileDb(
+    current.id,
+    current.role,
+    req.body
+  );
+  sendResponse(res, {
+    statusCode: 201,
+    message: "Farming profile created successfully",
+    data: profile
+  });
+});
+var getFarmerProfile = catchAsync(async (req, res) => {
+  const current = req.user;
+  const profile = await farmerService.getFarmerProfileFromDb(current.id, current.role);
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Farming profile retrieved successfully",
+    data: profile
+  });
+});
+var updateFarmerProfile = catchAsync(async (req, res) => {
+  const current = req.user;
+  const profile = await farmerService.updateFarmerProfileDb(
+    current.id,
+    current.role,
+    req.body
+  );
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Farming profile updated successfully",
+    data: profile
+  });
+});
+var farmerController = {
+  createFarmerProfile,
+  getFarmerProfile,
+  updateFarmerProfile
+};
+
+// src/modules/farmer/farmer.validation.ts
+import { z as z9 } from "zod";
+var district = z9.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
+var upazila = z9.string().trim().min(2, { error: "upazila must be at least 2 characters" }).max(60, { error: "upazila must be at most 60 characters" });
+var nid = z9.string().trim().regex(/^\d{10}$|^\d{13}$|^\d{17}$/, {
+  error: "nid must be a valid Bangladeshi NID number (10, 13 or 17 digits)"
+});
+var farmSizeAcre = z9.coerce.number({ error: "farmSizeAcre must be a number" }).positive({ error: "farmSizeAcre must be greater than zero" }).max(999999, { error: "farmSizeAcre is unrealistically large" });
+var createFarmerProfileSchema = z9.object({
+  body: z9.object({
+    district,
+    upazila: upazila.optional(),
+    nid: nid.optional(),
+    farmSizeAcre: farmSizeAcre.optional()
+  }).strict()
+});
+var updateFarmerProfileSchema = z9.object({
+  body: z9.object({
+    district: district.optional(),
+    upazila: upazila.optional(),
+    nid: nid.optional(),
+    farmSizeAcre: farmSizeAcre.optional()
+  }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
+    error: "Provide at least one field to update"
+  })
+});
+
+// src/modules/farmer/farmer.route.ts
 var router6 = Router6();
-router6.get(
+router6.post(
+  "/",
+  auth,
+  validateRequest(createFarmerProfileSchema),
+  farmerController.createFarmerProfile
+);
+router6.get("/", auth, farmerController.getFarmerProfile);
+router6.patch(
+  "/",
+  auth,
+  validateRequest(updateFarmerProfileSchema),
+  farmerController.updateFarmerProfile
+);
+var farmerRoute = router6;
+
+// src/modules/inspection/inspection.route.ts
+import { Router as Router7 } from "express";
+var router7 = Router7();
+router7.get(
   "/",
   auth,
   authorize("ADMIN"),
   validateRequest(listInspectionsSchema),
   inspectionController.getInspections
 );
-router6.get(
+router7.get(
   "/:id",
   auth,
   validateRequest(inspectionIdSchema),
   inspectionController.getInspectionById
 );
-var inspectionRoute = router6;
+var inspectionRoute = router7;
+
+// src/modules/owner/owner.route.ts
+import { Router as Router8 } from "express";
+
+// src/modules/owner/owner.service.ts
+var ownerProfileSelect = {
+  id: true,
+  businessName: true,
+  tradeLicenseNo: true,
+  nid: true,
+  district: true,
+  address: true,
+  createdAt: true,
+  updatedAt: true
+};
+var assertWarehouseOwner2 = (role) => {
+  if (role !== "WAREHOUSE_OWNER") {
+    throw new AppError(403, "Only warehouse owners have a business profile");
+  }
+};
+var createOwnerProfileDb = async (userId, role, payload) => {
+  assertWarehouseOwner2(role);
+  const existing = await prisma.ownerProfile.findUnique({
+    where: { userId },
+    select: { id: true }
+  });
+  if (existing) {
+    throw new AppError(
+      409,
+      "Your warehouse owner profile already exists. Use PATCH /api/v1/users/me/owner-profile to update it."
+    );
+  }
+  return prisma.ownerProfile.create({
+    data: { userId, ...payload },
+    select: ownerProfileSelect
+  });
+};
+var getOwnerProfileFromDb = async (userId, role) => {
+  assertWarehouseOwner2(role);
+  const profile = await prisma.ownerProfile.findUnique({
+    where: { userId },
+    select: ownerProfileSelect
+  });
+  if (!profile) {
+    throw new AppError(404, "You have not created your warehouse owner profile yet");
+  }
+  return profile;
+};
+var updateOwnerProfileDb = async (userId, role, payload) => {
+  assertWarehouseOwner2(role);
+  const existing = await prisma.ownerProfile.findUnique({
+    where: { userId },
+    select: { id: true }
+  });
+  if (!existing) {
+    throw new AppError(
+      404,
+      "You have not created your warehouse owner profile yet. Use POST /api/v1/users/me/owner-profile first."
+    );
+  }
+  const data = {};
+  if (payload.businessName !== void 0) data.businessName = payload.businessName;
+  if (payload.tradeLicenseNo !== void 0) data.tradeLicenseNo = payload.tradeLicenseNo;
+  if (payload.nid !== void 0) data.nid = payload.nid;
+  if (payload.district !== void 0) data.district = payload.district;
+  if (payload.address !== void 0) data.address = payload.address;
+  return prisma.ownerProfile.update({
+    where: { userId },
+    data,
+    select: ownerProfileSelect
+  });
+};
+var ownerService = {
+  createOwnerProfileDb,
+  getOwnerProfileFromDb,
+  updateOwnerProfileDb
+};
+
+// src/modules/owner/owner.controller.ts
+var createOwnerProfile = catchAsync(async (req, res) => {
+  const current = req.user;
+  const profile = await ownerService.createOwnerProfileDb(
+    current.id,
+    current.role,
+    req.body
+  );
+  sendResponse(res, {
+    statusCode: 201,
+    message: "Warehouse owner profile created. You can now list warehouses.",
+    data: profile
+  });
+});
+var getOwnerProfile = catchAsync(async (req, res) => {
+  const current = req.user;
+  const profile = await ownerService.getOwnerProfileFromDb(current.id, current.role);
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Warehouse owner profile retrieved successfully",
+    data: profile
+  });
+});
+var updateOwnerProfile = catchAsync(async (req, res) => {
+  const current = req.user;
+  const profile = await ownerService.updateOwnerProfileDb(
+    current.id,
+    current.role,
+    req.body
+  );
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Warehouse owner profile updated successfully",
+    data: profile
+  });
+});
+var ownerController = {
+  createOwnerProfile,
+  getOwnerProfile,
+  updateOwnerProfile
+};
+
+// src/modules/owner/owner.validation.ts
+import { z as z10 } from "zod";
+var businessName = z10.string({ error: "businessName is required" }).trim().min(2, { error: "businessName must be at least 2 characters" }).max(120, { error: "businessName must be at most 120 characters" });
+var tradeLicenseNo = z10.string({ error: "tradeLicenseNo is required" }).trim().min(4, { error: "tradeLicenseNo must be at least 4 characters" }).max(40, { error: "tradeLicenseNo must be at most 40 characters" });
+var nid2 = z10.string({ error: "nid is required" }).trim().regex(/^\d{10}$|^\d{13}$|^\d{17}$/, {
+  error: "nid must be a valid Bangladeshi NID number (10, 13 or 17 digits)"
+});
+var district2 = z10.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
+var address = z10.string({ error: "address is required" }).trim().min(5, { error: "address must be at least 5 characters" }).max(255, { error: "address must be at most 255 characters" });
+var createOwnerProfileSchema = z10.object({
+  body: z10.object({ businessName, tradeLicenseNo, nid: nid2, district: district2, address }).strict()
+});
+var updateOwnerProfileSchema = z10.object({
+  body: z10.object({
+    businessName: businessName.optional(),
+    tradeLicenseNo: tradeLicenseNo.optional(),
+    nid: nid2.optional(),
+    district: district2.optional(),
+    address: address.optional()
+  }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
+    error: "Provide at least one field to update"
+  })
+});
+
+// src/modules/owner/owner.route.ts
+var router8 = Router8();
+router8.post(
+  "/",
+  auth,
+  validateRequest(createOwnerProfileSchema),
+  ownerController.createOwnerProfile
+);
+router8.get("/", auth, ownerController.getOwnerProfile);
+router8.patch(
+  "/",
+  auth,
+  validateRequest(updateOwnerProfileSchema),
+  ownerController.updateOwnerProfile
+);
+var ownerRoute = router8;
 
 // src/lib/stripe.ts
 import Stripe from "stripe";
@@ -4028,309 +4578,137 @@ var paymentController = {
 };
 
 // src/modules/payment/payment.route.ts
-import { Router as Router7 } from "express";
+import { Router as Router9 } from "express";
 
 // src/modules/payment/payment.validation.ts
-import { z as z9 } from "zod";
+import { z as z11 } from "zod";
 var PAYMENT_STATUSES = ["PENDING", "SUCCEEDED", "FAILED", "REFUNDED"];
-var createCheckoutSessionSchema = z9.object({
-  body: z9.object({
-    bookingId: z9.uuid({ error: "bookingId must be a valid uuid" })
+var createCheckoutSessionSchema = z11.object({
+  body: z11.object({
+    bookingId: z11.uuid({ error: "bookingId must be a valid uuid" })
   }).strict()
 });
-var listPaymentsSchema = z9.object({
-  query: z9.object({
-    status: z9.enum(PAYMENT_STATUSES).optional(),
-    sortOrder: z9.enum(["asc", "desc"]).optional(),
-    page: z9.coerce.number().int().positive().optional(),
-    limit: z9.coerce.number().int().positive().max(100).optional()
+var listPaymentsSchema = z11.object({
+  query: z11.object({
+    status: z11.enum(PAYMENT_STATUSES).optional(),
+    sortOrder: z11.enum(["asc", "desc"]).optional(),
+    page: z11.coerce.number().int().positive().optional(),
+    limit: z11.coerce.number().int().positive().max(100).optional()
   }).strict()
 });
-var paymentIdSchema = z9.object({
-  params: z9.object({ id: z9.uuid({ error: "id must be a valid uuid" }) })
+var paymentIdSchema = z11.object({
+  params: z11.object({ id: z11.uuid({ error: "id must be a valid uuid" }) })
 });
-var refundPaymentSchema = z9.object({
-  params: z9.object({ id: z9.uuid({ error: "id must be a valid uuid" }) }),
-  body: z9.object({
-    reason: z9.string().trim().min(3).max(255).optional()
+var refundPaymentSchema = z11.object({
+  params: z11.object({ id: z11.uuid({ error: "id must be a valid uuid" }) }),
+  body: z11.object({
+    reason: z11.string().trim().min(3).max(255).optional()
   }).strict()
 });
 
 // src/modules/payment/payment.route.ts
-var router7 = Router7();
-router7.get("/success", paymentController.paymentSuccess);
-router7.get("/cancel", paymentController.paymentCancel);
-router7.post(
+var router9 = Router9();
+router9.get("/success", paymentController.paymentSuccess);
+router9.get("/cancel", paymentController.paymentCancel);
+router9.post(
   "/checkout-session",
   auth,
   authorize("FARMER"),
+  paymentLimiter,
   validateRequest(createCheckoutSessionSchema),
   paymentController.createCheckoutSession
 );
-router7.get(
+router9.get(
   "/me",
   auth,
   authorize("FARMER"),
   validateRequest(listPaymentsSchema),
   paymentController.getMyPayments
 );
-router7.get("/:id", auth, validateRequest(paymentIdSchema), paymentController.getPaymentById);
-router7.post(
+router9.get("/:id", auth, validateRequest(paymentIdSchema), paymentController.getPaymentById);
+router9.post(
   "/:id/refund",
   auth,
   authorize("ADMIN"),
   validateRequest(refundPaymentSchema),
   paymentController.refundPayment
 );
-var paymentRoute = router7;
-
-// src/modules/farmer/farmer.route.ts
-import { Router as Router8 } from "express";
-
-// src/modules/farmer/farmer.service.ts
-var farmerProfileSelect = {
-  id: true,
-  district: true,
-  upazila: true,
-  nid: true,
-  farmSizeAcre: true,
-  createdAt: true,
-  updatedAt: true
-};
-var toFarmerProfile = (row) => ({
-  id: row.id,
-  district: row.district,
-  upazila: row.upazila,
-  nid: row.nid,
-  farmSizeAcre: row.farmSizeAcre === null ? null : Number(row.farmSizeAcre),
-  createdAt: row.createdAt,
-  updatedAt: row.updatedAt
-});
-var assertFarmer = (role) => {
-  if (role !== "FARMER") {
-    throw new AppError(403, "Only farmers have a farming profile");
-  }
-};
-var createFarmerProfileDb = async (userId, role, payload) => {
-  assertFarmer(role);
-  const existing = await prisma.farmerProfile.findUnique({
-    where: { userId },
-    select: { id: true }
-  });
-  if (existing) {
-    throw new AppError(
-      409,
-      "Your farming profile already exists. Use PATCH /api/v1/users/me/farmer-profile to update it."
-    );
-  }
-  const created = await prisma.farmerProfile.create({
-    data: {
-      userId,
-      district: payload.district,
-      upazila: payload.upazila ?? null,
-      nid: payload.nid ?? null,
-      farmSizeAcre: payload.farmSizeAcre ?? null
-    },
-    select: farmerProfileSelect
-  });
-  return toFarmerProfile(created);
-};
-var getFarmerProfileFromDb = async (userId, role) => {
-  assertFarmer(role);
-  const profile = await prisma.farmerProfile.findUnique({
-    where: { userId },
-    select: farmerProfileSelect
-  });
-  if (!profile) {
-    throw new AppError(404, "You have not created your farming profile yet");
-  }
-  return toFarmerProfile(profile);
-};
-var updateFarmerProfileDb = async (userId, role, payload) => {
-  assertFarmer(role);
-  const existing = await prisma.farmerProfile.findUnique({
-    where: { userId },
-    select: { id: true }
-  });
-  if (!existing) {
-    throw new AppError(
-      404,
-      "You have not created your farming profile yet. Use POST /api/v1/users/me/farmer-profile first."
-    );
-  }
-  const data = {};
-  if (payload.district !== void 0) data.district = payload.district;
-  if (payload.upazila !== void 0) data.upazila = payload.upazila;
-  if (payload.nid !== void 0) data.nid = payload.nid;
-  if (payload.farmSizeAcre !== void 0) data.farmSizeAcre = payload.farmSizeAcre;
-  const updated = await prisma.farmerProfile.update({
-    where: { userId },
-    data,
-    select: farmerProfileSelect
-  });
-  return toFarmerProfile(updated);
-};
-var farmerService = {
-  createFarmerProfileDb,
-  getFarmerProfileFromDb,
-  updateFarmerProfileDb
-};
-
-// src/modules/farmer/farmer.controller.ts
-var createFarmerProfile = catchAsync(async (req, res) => {
-  const current = req.user;
-  const profile = await farmerService.createFarmerProfileDb(
-    current.id,
-    current.role,
-    req.body
-  );
-  sendResponse(res, {
-    statusCode: 201,
-    message: "Farming profile created successfully",
-    data: profile
-  });
-});
-var getFarmerProfile = catchAsync(async (req, res) => {
-  const current = req.user;
-  const profile = await farmerService.getFarmerProfileFromDb(current.id, current.role);
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Farming profile retrieved successfully",
-    data: profile
-  });
-});
-var updateFarmerProfile = catchAsync(async (req, res) => {
-  const current = req.user;
-  const profile = await farmerService.updateFarmerProfileDb(
-    current.id,
-    current.role,
-    req.body
-  );
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Farming profile updated successfully",
-    data: profile
-  });
-});
-var farmerController = {
-  createFarmerProfile,
-  getFarmerProfile,
-  updateFarmerProfile
-};
-
-// src/modules/farmer/farmer.validation.ts
-import { z as z10 } from "zod";
-var district = z10.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
-var upazila = z10.string().trim().min(2, { error: "upazila must be at least 2 characters" }).max(60, { error: "upazila must be at most 60 characters" });
-var nid = z10.string().trim().regex(/^\d{10}$|^\d{13}$|^\d{17}$/, {
-  error: "nid must be a valid Bangladeshi NID number (10, 13 or 17 digits)"
-});
-var farmSizeAcre = z10.coerce.number({ error: "farmSizeAcre must be a number" }).positive({ error: "farmSizeAcre must be greater than zero" }).max(999999, { error: "farmSizeAcre is unrealistically large" });
-var createFarmerProfileSchema = z10.object({
-  body: z10.object({
-    district,
-    upazila: upazila.optional(),
-    nid: nid.optional(),
-    farmSizeAcre: farmSizeAcre.optional()
-  }).strict()
-});
-var updateFarmerProfileSchema = z10.object({
-  body: z10.object({
-    district: district.optional(),
-    upazila: upazila.optional(),
-    nid: nid.optional(),
-    farmSizeAcre: farmSizeAcre.optional()
-  }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
-    error: "Provide at least one field to update"
-  })
-});
-
-// src/modules/farmer/farmer.route.ts
-var router8 = Router8();
-router8.post("/", auth, validateRequest(createFarmerProfileSchema), farmerController.createFarmerProfile);
-router8.get("/", auth, farmerController.getFarmerProfile);
-router8.patch("/", auth, validateRequest(updateFarmerProfileSchema), farmerController.updateFarmerProfile);
-var farmerRoute = router8;
+var paymentRoute = router9;
 
 // src/modules/review/review.route.ts
-import { Router as Router9 } from "express";
+import { Router as Router10 } from "express";
 
 // src/modules/warehouse/warehouse.validation.ts
-import { z as z11 } from "zod";
-var WAREHOUSE_SORT_FIELDS = [
-  "createdAt",
-  "name",
-  "ratePerKgPerDay",
-  "avgRating"
-];
-var name3 = z11.string({ error: "name is required" }).trim().min(3, { error: "name must be at least 3 characters" }).max(120, { error: "name must be at most 120 characters" });
-var district2 = z11.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
-var address = z11.string({ error: "address is required" }).trim().min(5, { error: "address must be at least 5 characters" }).max(255, { error: "address must be at most 255 characters" });
-var licenseNo = z11.string({ error: "licenseNo is required" }).trim().min(4, { error: "licenseNo must be at least 4 characters" }).max(40, { error: "licenseNo must be at most 40 characters" });
-var ratePerKgPerDay = z11.coerce.number({ error: "ratePerKgPerDay must be a number" }).positive({ error: "ratePerKgPerDay must be greater than zero" }).max(1e3, { error: "ratePerKgPerDay is unrealistically high" });
-var minBookingDays = z11.coerce.number({ error: "minBookingDays must be a number" }).int({ error: "minBookingDays must be a whole number" }).min(1, { error: "minBookingDays must be at least 1" }).max(365, { error: "minBookingDays cannot exceed 365" });
-var listWarehousesSchema = z11.object({
-  query: z11.object({
-    search: z11.string().trim().min(1).optional(),
-    district: z11.string().trim().min(1).optional(),
-    cropTypeId: z11.uuid({ error: "cropTypeId must be a valid uuid" }).optional(),
-    minCapacityKg: z11.coerce.number().int().positive().optional(),
-    minRate: z11.coerce.number().nonnegative().optional(),
-    maxRate: z11.coerce.number().positive().optional(),
-    minRating: z11.coerce.number().min(1).max(5).optional(),
-    sortBy: z11.enum(WAREHOUSE_SORT_FIELDS).optional(),
-    sortOrder: z11.enum(["asc", "desc"]).optional(),
-    page: z11.coerce.number().int().positive().optional(),
-    limit: z11.coerce.number().int().positive().max(100).optional()
+import { z as z12 } from "zod";
+var WAREHOUSE_SORT_FIELDS = ["createdAt", "name", "ratePerKgPerDay", "avgRating"];
+var name3 = z12.string({ error: "name is required" }).trim().min(3, { error: "name must be at least 3 characters" }).max(120, { error: "name must be at most 120 characters" });
+var district3 = z12.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
+var address2 = z12.string({ error: "address is required" }).trim().min(5, { error: "address must be at least 5 characters" }).max(255, { error: "address must be at most 255 characters" });
+var licenseNo = z12.string({ error: "licenseNo is required" }).trim().min(4, { error: "licenseNo must be at least 4 characters" }).max(40, { error: "licenseNo must be at most 40 characters" });
+var ratePerKgPerDay = z12.coerce.number({ error: "ratePerKgPerDay must be a number" }).positive({ error: "ratePerKgPerDay must be greater than zero" }).max(1e3, { error: "ratePerKgPerDay is unrealistically high" });
+var minBookingDays = z12.coerce.number({ error: "minBookingDays must be a number" }).int({ error: "minBookingDays must be a whole number" }).min(1, { error: "minBookingDays must be at least 1" }).max(365, { error: "minBookingDays cannot exceed 365" });
+var listWarehousesSchema = z12.object({
+  query: z12.object({
+    search: z12.string().trim().min(1).optional(),
+    district: z12.string().trim().min(1).optional(),
+    cropTypeId: z12.uuid({ error: "cropTypeId must be a valid uuid" }).optional(),
+    minCapacityKg: z12.coerce.number().int().positive().optional(),
+    minRate: z12.coerce.number().nonnegative().optional(),
+    maxRate: z12.coerce.number().positive().optional(),
+    minRating: z12.coerce.number().min(1).max(5).optional(),
+    sortBy: z12.enum(WAREHOUSE_SORT_FIELDS).optional(),
+    sortOrder: z12.enum(["asc", "desc"]).optional(),
+    page: z12.coerce.number().int().positive().optional(),
+    limit: z12.coerce.number().int().positive().max(100).optional()
   }).strict().refine(
     (query) => query.minRate === void 0 || query.maxRate === void 0 || query.maxRate >= query.minRate,
     { error: "maxRate must be greater than or equal to minRate", path: ["maxRate"] }
   )
 });
-var createWarehouseSchema = z11.object({
-  body: z11.object({
+var createWarehouseSchema = z12.object({
+  body: z12.object({
     name: name3,
-    district: district2,
-    address,
+    district: district3,
+    address: address2,
     licenseNo,
     ratePerKgPerDay,
     minBookingDays: minBookingDays.optional()
   }).strict()
 });
-var updateWarehouseSchema = z11.object({
-  params: z11.object({ id: z11.uuid({ error: "id must be a valid uuid" }) }),
-  body: z11.object({
+var updateWarehouseSchema = z12.object({
+  params: z12.object({ id: z12.uuid({ error: "id must be a valid uuid" }) }),
+  body: z12.object({
     name: name3.optional(),
-    district: district2.optional(),
-    address: address.optional(),
+    district: district3.optional(),
+    address: address2.optional(),
     licenseNo: licenseNo.optional(),
     ratePerKgPerDay: ratePerKgPerDay.optional(),
     minBookingDays: minBookingDays.optional(),
-    status: z11.undefined({
+    status: z12.undefined({
       error: "Warehouse status is set by an admin, not by the owner"
     }).optional()
   }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
     error: "Provide at least one field to update"
   })
 });
-var warehouseIdSchema = z11.object({
-  params: z11.object({ id: z11.uuid({ error: "id must be a valid uuid" }) })
+var warehouseIdSchema = z12.object({
+  params: z12.object({ id: z12.uuid({ error: "id must be a valid uuid" }) })
 });
-var listMyWarehousesSchema = z11.object({
-  query: z11.object({
-    status: z11.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]).optional(),
-    sortBy: z11.enum(WAREHOUSE_SORT_FIELDS).optional(),
-    sortOrder: z11.enum(["asc", "desc"]).optional(),
-    page: z11.coerce.number().int().positive().optional(),
-    limit: z11.coerce.number().int().positive().max(100).optional()
+var listMyWarehousesSchema = z12.object({
+  query: z12.object({
+    status: z12.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]).optional(),
+    sortBy: z12.enum(WAREHOUSE_SORT_FIELDS).optional(),
+    sortOrder: z12.enum(["asc", "desc"]).optional(),
+    page: z12.coerce.number().int().positive().optional(),
+    limit: z12.coerce.number().int().positive().max(100).optional()
   }).strict()
 });
-var warehouseReviewsSchema = z11.object({
-  params: z11.object({ warehouseId: z11.uuid({ error: "warehouseId must be a valid uuid" }) }),
-  query: z11.object({
-    page: z11.coerce.number().int().positive().optional(),
-    limit: z11.coerce.number().int().positive().max(100).optional(),
-    sortOrder: z11.enum(["asc", "desc"]).optional()
+var warehouseReviewsSchema = z12.object({
+  params: z12.object({ warehouseId: z12.uuid({ error: "warehouseId must be a valid uuid" }) }),
+  query: z12.object({
+    page: z12.coerce.number().int().positive().optional(),
+    limit: z12.coerce.number().int().positive().max(100).optional(),
+    sortOrder: z12.enum(["asc", "desc"]).optional()
   }).strict()
 });
 
@@ -4411,7 +4789,7 @@ var createReviewDb = async (farmerId, payload, ip) => {
     throw new AppError(409, "You have already reviewed this booking");
   }
   const warehouseId = booking.chamber.warehouseId;
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const review = existing === null ? await tx.review.create({
       data: {
         bookingId: payload.bookingId,
@@ -4441,6 +4819,8 @@ var createReviewDb = async (farmerId, payload, ip) => {
     });
     return review;
   });
+  await invalidateReviewCache(warehouseId);
+  return created;
 };
 var updateReviewDb = async (reviewId, actor, payload, ip) => {
   const existing = await prisma.review.findFirst({
@@ -4456,7 +4836,7 @@ var updateReviewDb = async (reviewId, actor, payload, ip) => {
   const data = {};
   if (payload.rating !== void 0) data.rating = payload.rating;
   if (payload.comment !== void 0) data.comment = payload.comment;
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     const review = await tx.review.update({
       where: { id: reviewId },
       data,
@@ -4474,6 +4854,8 @@ var updateReviewDb = async (reviewId, actor, payload, ip) => {
     });
     return review;
   });
+  await invalidateReviewCache(existing.warehouseId);
+  return updated;
 };
 var softDeleteReviewDb = async (reviewId, actor, ip) => {
   const existing = await prisma.review.findFirst({
@@ -4501,6 +4883,7 @@ var softDeleteReviewDb = async (reviewId, actor, ip) => {
       ip
     });
   });
+  await invalidateReviewCache(existing.warehouseId);
 };
 var reviewService = {
   getWarehouseReviewsFromDb,
@@ -4551,48 +4934,56 @@ var reviewController = {
 };
 
 // src/modules/review/review.validation.ts
-import { z as z12 } from "zod";
-var rating = z12.coerce.number({ error: "rating must be a number" }).int({ error: "rating must be a whole number" }).min(1, { error: "rating must be between 1 and 5" }).max(5, { error: "rating must be between 1 and 5" });
-var comment = z12.string().trim().min(3, { error: "comment must be at least 3 characters" }).max(1e3, { error: "comment must be at most 1000 characters" });
-var createReviewSchema = z12.object({
-  body: z12.object({
-    bookingId: z12.uuid({ error: "bookingId must be a valid uuid" }),
+import { z as z13 } from "zod";
+var rating = z13.coerce.number({ error: "rating must be a number" }).int({ error: "rating must be a whole number" }).min(1, { error: "rating must be between 1 and 5" }).max(5, { error: "rating must be between 1 and 5" });
+var comment = z13.string().trim().min(3, { error: "comment must be at least 3 characters" }).max(1e3, { error: "comment must be at most 1000 characters" });
+var createReviewSchema = z13.object({
+  body: z13.object({
+    bookingId: z13.uuid({ error: "bookingId must be a valid uuid" }),
     rating,
     comment: comment.optional()
   }).strict()
 });
-var updateReviewSchema = z12.object({
-  params: z12.object({ id: z12.uuid({ error: "id must be a valid uuid" }) }),
-  body: z12.object({
+var updateReviewSchema = z13.object({
+  params: z13.object({ id: z13.uuid({ error: "id must be a valid uuid" }) }),
+  body: z13.object({
     rating: rating.optional(),
     comment: comment.optional()
   }).strict().refine((body) => body.rating !== void 0 || body.comment !== void 0, {
     error: "Provide at least one field to update: rating or comment"
   })
 });
-var reviewIdSchema = z12.object({
-  params: z12.object({ id: z12.uuid({ error: "id must be a valid uuid" }) })
+var reviewIdSchema = z13.object({
+  params: z13.object({ id: z13.uuid({ error: "id must be a valid uuid" }) })
 });
 
 // src/modules/review/review.route.ts
-var nestedRouter2 = Router9({ mergeParams: true });
-nestedRouter2.get("/", validateRequest(warehouseReviewsSchema), reviewController.getWarehouseReviews);
-var router9 = Router9();
-router9.post(
+var nestedRouter2 = Router10({ mergeParams: true });
+nestedRouter2.get(
+  "/",
+  validateRequest(warehouseReviewsSchema),
+  cacheResponse(
+    CACHE_TTL.warehouseReviews,
+    (req) => cacheKeys.warehouseReviews(String(req.params.warehouseId), queryOf(req))
+  ),
+  reviewController.getWarehouseReviews
+);
+var router10 = Router10();
+router10.post(
   "/",
   auth,
   authorize("FARMER"),
   validateRequest(createReviewSchema),
   reviewController.createReview
 );
-router9.patch(
+router10.patch(
   "/:id",
   auth,
   authorize("FARMER"),
   validateRequest(updateReviewSchema),
   reviewController.updateReview
 );
-router9.delete(
+router10.delete(
   "/:id",
   auth,
   authorize("FARMER", "ADMIN"),
@@ -4600,10 +4991,216 @@ router9.delete(
   reviewController.deleteReview
 );
 var warehouseReviewRoute = nestedRouter2;
-var reviewRoute = router9;
+var reviewRoute = router10;
+
+// src/modules/user/user.route.ts
+import { Router as Router11 } from "express";
+
+// src/modules/user/user.service.ts
+import bcrypt2 from "bcrypt";
+var getMeFromDb = async (userId) => {
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
+    select: publicUserSelect
+  });
+  if (!user) {
+    throw new AppError(404, "Account not found");
+  }
+  return toPublicUser(user);
+};
+var updateMeDb = async (userId, payload) => {
+  const existing = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
+    select: { id: true }
+  });
+  if (!existing) {
+    throw new AppError(404, "Account not found");
+  }
+  const data = {};
+  if (payload.name !== void 0) {
+    data.name = payload.name;
+  }
+  if (payload.phone !== void 0) {
+    data.phone = payload.phone;
+  }
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data,
+    select: publicUserSelect
+  });
+  return toPublicUser(user);
+};
+var deleteMeDb = async (userId, password) => {
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
+    select: { id: true, password: true }
+  });
+  if (!user) {
+    throw new AppError(404, "Account not found");
+  }
+  if (user.password !== null) {
+    if (password === void 0) {
+      throw new AppError(400, "Confirm your password to delete this account");
+    }
+    const matches2 = await bcrypt2.compare(password, user.password);
+    if (!matches2) {
+      throw new AppError(401, "Password is incorrect");
+    }
+  }
+  await prisma.user.update({
+    where: { id: userId },
+    data: { deletedAt: /* @__PURE__ */ new Date() }
+  });
+};
+var getDashboardFromDb = async (userId, role) => {
+  if (role === "FARMER") {
+    const [totalBookings2, activeBookings, completedBookings, payments, profile] = await Promise.all(
+      [
+        prisma.booking.count({ where: { farmerId: userId, deletedAt: null } }),
+        prisma.booking.count({
+          where: { farmerId: userId, deletedAt: null, status: { in: ["PAID", "STORED"] } }
+        }),
+        prisma.booking.count({ where: { farmerId: userId, deletedAt: null, status: "COMPLETED" } }),
+        prisma.payment.aggregate({
+          where: { farmerId: userId, status: "SUCCEEDED" },
+          _sum: { amountBdt: true }
+        }),
+        prisma.farmerProfile.findUnique({ where: { userId }, select: { id: true } })
+      ]
+    );
+    return {
+      role,
+      profileComplete: profile !== null,
+      totalBookings: totalBookings2,
+      activeBookings,
+      completedBookings,
+      totalSpentBdt: Number(payments._sum.amountBdt ?? 0)
+    };
+  }
+  if (role === "WAREHOUSE_OWNER") {
+    const [totalWarehouses, approvedWarehouses, totalChambers, pendingBookings, profile] = await Promise.all([
+      prisma.warehouse.count({ where: { ownerId: userId, deletedAt: null } }),
+      prisma.warehouse.count({
+        where: { ownerId: userId, deletedAt: null, status: "APPROVED" }
+      }),
+      prisma.chamber.count({
+        where: { deletedAt: null, warehouse: { ownerId: userId, deletedAt: null } }
+      }),
+      prisma.booking.count({
+        where: {
+          deletedAt: null,
+          status: "PENDING_APPROVAL",
+          chamber: { warehouse: { ownerId: userId } }
+        }
+      }),
+      prisma.ownerProfile.findUnique({ where: { userId }, select: { id: true } })
+    ]);
+    return {
+      role,
+      profileComplete: profile !== null,
+      totalWarehouses,
+      approvedWarehouses,
+      totalChambers,
+      bookingsAwaitingApproval: pendingBookings
+    };
+  }
+  const [totalUsers, pendingWarehouses, totalBookings, revenue] = await Promise.all([
+    prisma.user.count({ where: { deletedAt: null } }),
+    prisma.warehouse.count({ where: { deletedAt: null, status: "PENDING" } }),
+    prisma.booking.count({ where: { deletedAt: null } }),
+    prisma.payment.aggregate({ where: { status: "SUCCEEDED" }, _sum: { amountBdt: true } })
+  ]);
+  return {
+    role,
+    profileComplete: true,
+    totalUsers,
+    warehousesAwaitingApproval: pendingWarehouses,
+    totalBookings,
+    platformRevenueBdt: Number(revenue._sum.amountBdt ?? 0)
+  };
+};
+var userService = {
+  getMeFromDb,
+  updateMeDb,
+  deleteMeDb,
+  getDashboardFromDb
+};
+
+// src/modules/user/user.controller.ts
+var getMe = catchAsync(async (req, res) => {
+  const user = await userService.getMeFromDb(req.user.id);
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Profile retrieved successfully",
+    data: user
+  });
+});
+var updateMe = catchAsync(async (req, res) => {
+  const user = await userService.updateMeDb(req.user.id, req.body);
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Profile updated successfully",
+    data: user
+  });
+});
+var deleteMe = catchAsync(async (req, res) => {
+  const { password } = req.body ?? {};
+  await userService.deleteMeDb(req.user.id, password);
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Account deleted successfully"
+  });
+});
+var getDashboard = catchAsync(async (req, res) => {
+  const current = req.user;
+  const data = await userService.getDashboardFromDb(current.id, current.role);
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Dashboard retrieved successfully",
+    data
+  });
+});
+var userController = {
+  getMe,
+  updateMe,
+  deleteMe,
+  getDashboard
+};
+
+// src/modules/user/user.validation.ts
+import { z as z14 } from "zod";
+var BANGLADESHI_PHONE2 = /^(?:\+?880|0)1[3-9]\d{8}$/;
+var updateMeSchema = z14.object({
+  body: z14.object({
+    name: z14.string().trim().min(2, { error: "name must be at least 2 characters" }).max(80, { error: "name must be at most 80 characters" }).optional(),
+    phone: z14.string().trim().regex(BANGLADESHI_PHONE2, {
+      error: "phone must be a valid Bangladeshi number, e.g. 01712345678"
+    }).optional(),
+    email: z14.undefined({
+      error: "Email cannot be changed. It is the permanent identifier for your account."
+    }).optional(),
+    role: z14.undefined({ error: "Role cannot be changed through this endpoint" }).optional(),
+    status: z14.undefined({ error: "Account status can only be changed by an admin" }).optional()
+  }).strict().refine((body) => body.name !== void 0 || body.phone !== void 0, {
+    error: "Provide at least one field to update: name or phone"
+  })
+});
+var deleteMeSchema = z14.object({
+  body: z14.object({
+    password: z14.string().min(1, { error: "password is required to delete your account" }).optional()
+  }).strict()
+});
+
+// src/modules/user/user.route.ts
+var router11 = Router11();
+router11.get("/me", auth, userController.getMe);
+router11.patch("/me", auth, validateRequest(updateMeSchema), userController.updateMe);
+router11.delete("/me", auth, validateRequest(deleteMeSchema), userController.deleteMe);
+router11.get("/me/dashboard", auth, userController.getDashboard);
+var userRoute = router11;
 
 // src/modules/warehouse/warehouse.route.ts
-import { Router as Router10 } from "express";
+import { Router as Router12 } from "express";
 
 // src/modules/warehouse/warehouse.service.ts
 var warehouseSelect = {
@@ -4773,6 +5370,7 @@ var createWarehouseDb = async (ownerId, payload) => {
     },
     select: { id: true }
   });
+  await invalidateWarehouseCache();
   return getWarehouseByIdFromDb(created.id);
 };
 var updateWarehouseDb = async (id, ownerId, payload) => {
@@ -4785,6 +5383,7 @@ var updateWarehouseDb = async (id, ownerId, payload) => {
   if (payload.ratePerKgPerDay !== void 0) data.ratePerKgPerDay = payload.ratePerKgPerDay;
   if (payload.minBookingDays !== void 0) data.minBookingDays = payload.minBookingDays;
   await prisma.warehouse.update({ where: { id }, data });
+  await invalidateWarehouseCache(id);
   return getWarehouseByIdFromDb(id);
 };
 var softDeleteWarehouseDb = async (id, ownerId) => {
@@ -4807,6 +5406,7 @@ var softDeleteWarehouseDb = async (id, ownerId) => {
     prisma.chamber.updateMany({ where: { warehouseId: id, deletedAt: null }, data: { deletedAt } }),
     prisma.warehouse.update({ where: { id }, data: { deletedAt } })
   ]);
+  await invalidateWarehouseCache(id);
 };
 var warehouseService = {
   getWarehousesFromDb,
@@ -4886,16 +5486,21 @@ var warehouseController = {
 };
 
 // src/modules/warehouse/warehouse.route.ts
-var router10 = Router10();
-router10.get("/", validateRequest(listWarehousesSchema), warehouseController.getWarehouses);
-router10.get(
+var router12 = Router12();
+router12.get(
+  "/",
+  validateRequest(listWarehousesSchema),
+  cacheResponse(CACHE_TTL.warehouseList, (req) => cacheKeys.warehouseList(queryOf(req))),
+  warehouseController.getWarehouses
+);
+router12.get(
   "/me",
   auth,
   authorize("WAREHOUSE_OWNER"),
   validateRequest(listMyWarehousesSchema),
   warehouseController.getMyWarehouses
 );
-router10.post(
+router12.post(
   "/",
   auth,
   authorize("WAREHOUSE_OWNER"),
@@ -4903,20 +5508,28 @@ router10.post(
   validateRequest(createWarehouseSchema),
   warehouseController.createWarehouse
 );
-router10.get(
+router12.get(
   "/:id/bookings",
   auth,
   authorize("WAREHOUSE_OWNER"),
   validateRequest(warehouseBookingsSchema),
   bookingController.getWarehouseBookings
 );
-router10.get(
+router12.get(
   "/:id/availability",
   validateRequest(warehouseAvailabilitySchema),
   availabilityController.getWarehouseAvailability
 );
-router10.get("/:id", validateRequest(warehouseIdSchema), warehouseController.getWarehouseById);
-router10.patch(
+router12.get(
+  "/:id",
+  validateRequest(warehouseIdSchema),
+  cacheResponse(
+    CACHE_TTL.warehouseDetail,
+    (req) => cacheKeys.warehouseDetail(String(req.params.id))
+  ),
+  warehouseController.getWarehouseById
+);
+router12.patch(
   "/:id",
   auth,
   authorize("WAREHOUSE_OWNER"),
@@ -4924,7 +5537,7 @@ router10.patch(
   validateRequest(updateWarehouseSchema),
   warehouseController.updateWarehouse
 );
-router10.delete(
+router12.delete(
   "/:id",
   auth,
   authorize("WAREHOUSE_OWNER"),
@@ -4932,364 +5545,11 @@ router10.delete(
   validateRequest(warehouseIdSchema),
   warehouseController.deleteWarehouse
 );
-var warehouseRoute = router10;
-
-// src/modules/owner/owner.route.ts
-import { Router as Router11 } from "express";
-
-// src/modules/owner/owner.service.ts
-var ownerProfileSelect = {
-  id: true,
-  businessName: true,
-  tradeLicenseNo: true,
-  nid: true,
-  district: true,
-  address: true,
-  createdAt: true,
-  updatedAt: true
-};
-var assertWarehouseOwner2 = (role) => {
-  if (role !== "WAREHOUSE_OWNER") {
-    throw new AppError(403, "Only warehouse owners have a business profile");
-  }
-};
-var createOwnerProfileDb = async (userId, role, payload) => {
-  assertWarehouseOwner2(role);
-  const existing = await prisma.ownerProfile.findUnique({
-    where: { userId },
-    select: { id: true }
-  });
-  if (existing) {
-    throw new AppError(
-      409,
-      "Your warehouse owner profile already exists. Use PATCH /api/v1/users/me/owner-profile to update it."
-    );
-  }
-  return prisma.ownerProfile.create({
-    data: { userId, ...payload },
-    select: ownerProfileSelect
-  });
-};
-var getOwnerProfileFromDb = async (userId, role) => {
-  assertWarehouseOwner2(role);
-  const profile = await prisma.ownerProfile.findUnique({
-    where: { userId },
-    select: ownerProfileSelect
-  });
-  if (!profile) {
-    throw new AppError(404, "You have not created your warehouse owner profile yet");
-  }
-  return profile;
-};
-var updateOwnerProfileDb = async (userId, role, payload) => {
-  assertWarehouseOwner2(role);
-  const existing = await prisma.ownerProfile.findUnique({
-    where: { userId },
-    select: { id: true }
-  });
-  if (!existing) {
-    throw new AppError(
-      404,
-      "You have not created your warehouse owner profile yet. Use POST /api/v1/users/me/owner-profile first."
-    );
-  }
-  const data = {};
-  if (payload.businessName !== void 0) data.businessName = payload.businessName;
-  if (payload.tradeLicenseNo !== void 0) data.tradeLicenseNo = payload.tradeLicenseNo;
-  if (payload.nid !== void 0) data.nid = payload.nid;
-  if (payload.district !== void 0) data.district = payload.district;
-  if (payload.address !== void 0) data.address = payload.address;
-  return prisma.ownerProfile.update({
-    where: { userId },
-    data,
-    select: ownerProfileSelect
-  });
-};
-var ownerService = {
-  createOwnerProfileDb,
-  getOwnerProfileFromDb,
-  updateOwnerProfileDb
-};
-
-// src/modules/owner/owner.controller.ts
-var createOwnerProfile = catchAsync(async (req, res) => {
-  const current = req.user;
-  const profile = await ownerService.createOwnerProfileDb(
-    current.id,
-    current.role,
-    req.body
-  );
-  sendResponse(res, {
-    statusCode: 201,
-    message: "Warehouse owner profile created. You can now list warehouses.",
-    data: profile
-  });
-});
-var getOwnerProfile = catchAsync(async (req, res) => {
-  const current = req.user;
-  const profile = await ownerService.getOwnerProfileFromDb(current.id, current.role);
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Warehouse owner profile retrieved successfully",
-    data: profile
-  });
-});
-var updateOwnerProfile = catchAsync(async (req, res) => {
-  const current = req.user;
-  const profile = await ownerService.updateOwnerProfileDb(
-    current.id,
-    current.role,
-    req.body
-  );
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Warehouse owner profile updated successfully",
-    data: profile
-  });
-});
-var ownerController = {
-  createOwnerProfile,
-  getOwnerProfile,
-  updateOwnerProfile
-};
-
-// src/modules/owner/owner.validation.ts
-import { z as z13 } from "zod";
-var businessName = z13.string({ error: "businessName is required" }).trim().min(2, { error: "businessName must be at least 2 characters" }).max(120, { error: "businessName must be at most 120 characters" });
-var tradeLicenseNo = z13.string({ error: "tradeLicenseNo is required" }).trim().min(4, { error: "tradeLicenseNo must be at least 4 characters" }).max(40, { error: "tradeLicenseNo must be at most 40 characters" });
-var nid2 = z13.string({ error: "nid is required" }).trim().regex(/^\d{10}$|^\d{13}$|^\d{17}$/, {
-  error: "nid must be a valid Bangladeshi NID number (10, 13 or 17 digits)"
-});
-var district3 = z13.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
-var address2 = z13.string({ error: "address is required" }).trim().min(5, { error: "address must be at least 5 characters" }).max(255, { error: "address must be at most 255 characters" });
-var createOwnerProfileSchema = z13.object({
-  body: z13.object({ businessName, tradeLicenseNo, nid: nid2, district: district3, address: address2 }).strict()
-});
-var updateOwnerProfileSchema = z13.object({
-  body: z13.object({
-    businessName: businessName.optional(),
-    tradeLicenseNo: tradeLicenseNo.optional(),
-    nid: nid2.optional(),
-    district: district3.optional(),
-    address: address2.optional()
-  }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
-    error: "Provide at least one field to update"
-  })
-});
-
-// src/modules/owner/owner.route.ts
-var router11 = Router11();
-router11.post("/", auth, validateRequest(createOwnerProfileSchema), ownerController.createOwnerProfile);
-router11.get("/", auth, ownerController.getOwnerProfile);
-router11.patch("/", auth, validateRequest(updateOwnerProfileSchema), ownerController.updateOwnerProfile);
-var ownerRoute = router11;
-
-// src/modules/user/user.route.ts
-import { Router as Router12 } from "express";
-
-// src/modules/user/user.service.ts
-import bcrypt2 from "bcrypt";
-var getMeFromDb = async (userId) => {
-  const user = await prisma.user.findFirst({
-    where: { id: userId, deletedAt: null },
-    select: publicUserSelect
-  });
-  if (!user) {
-    throw new AppError(404, "Account not found");
-  }
-  return toPublicUser(user);
-};
-var updateMeDb = async (userId, payload) => {
-  const existing = await prisma.user.findFirst({
-    where: { id: userId, deletedAt: null },
-    select: { id: true }
-  });
-  if (!existing) {
-    throw new AppError(404, "Account not found");
-  }
-  const data = {};
-  if (payload.name !== void 0) {
-    data.name = payload.name;
-  }
-  if (payload.phone !== void 0) {
-    data.phone = payload.phone;
-  }
-  const user = await prisma.user.update({
-    where: { id: userId },
-    data,
-    select: publicUserSelect
-  });
-  return toPublicUser(user);
-};
-var deleteMeDb = async (userId, password) => {
-  const user = await prisma.user.findFirst({
-    where: { id: userId, deletedAt: null },
-    select: { id: true, password: true }
-  });
-  if (!user) {
-    throw new AppError(404, "Account not found");
-  }
-  if (user.password !== null) {
-    if (password === void 0) {
-      throw new AppError(400, "Confirm your password to delete this account");
-    }
-    const matches2 = await bcrypt2.compare(password, user.password);
-    if (!matches2) {
-      throw new AppError(401, "Password is incorrect");
-    }
-  }
-  await prisma.user.update({
-    where: { id: userId },
-    data: { deletedAt: /* @__PURE__ */ new Date() }
-  });
-};
-var getDashboardFromDb = async (userId, role) => {
-  if (role === "FARMER") {
-    const [totalBookings2, activeBookings, completedBookings, payments, profile] = await Promise.all([
-      prisma.booking.count({ where: { farmerId: userId, deletedAt: null } }),
-      prisma.booking.count({
-        where: { farmerId: userId, deletedAt: null, status: { in: ["PAID", "STORED"] } }
-      }),
-      prisma.booking.count({ where: { farmerId: userId, deletedAt: null, status: "COMPLETED" } }),
-      prisma.payment.aggregate({
-        where: { farmerId: userId, status: "SUCCEEDED" },
-        _sum: { amountBdt: true }
-      }),
-      prisma.farmerProfile.findUnique({ where: { userId }, select: { id: true } })
-    ]);
-    return {
-      role,
-      profileComplete: profile !== null,
-      totalBookings: totalBookings2,
-      activeBookings,
-      completedBookings,
-      totalSpentBdt: Number(payments._sum.amountBdt ?? 0)
-    };
-  }
-  if (role === "WAREHOUSE_OWNER") {
-    const [totalWarehouses, approvedWarehouses, totalChambers, pendingBookings, profile] = await Promise.all([
-      prisma.warehouse.count({ where: { ownerId: userId, deletedAt: null } }),
-      prisma.warehouse.count({
-        where: { ownerId: userId, deletedAt: null, status: "APPROVED" }
-      }),
-      prisma.chamber.count({
-        where: { deletedAt: null, warehouse: { ownerId: userId, deletedAt: null } }
-      }),
-      prisma.booking.count({
-        where: {
-          deletedAt: null,
-          status: "PENDING_APPROVAL",
-          chamber: { warehouse: { ownerId: userId } }
-        }
-      }),
-      prisma.ownerProfile.findUnique({ where: { userId }, select: { id: true } })
-    ]);
-    return {
-      role,
-      profileComplete: profile !== null,
-      totalWarehouses,
-      approvedWarehouses,
-      totalChambers,
-      bookingsAwaitingApproval: pendingBookings
-    };
-  }
-  const [totalUsers, pendingWarehouses, totalBookings, revenue] = await Promise.all([
-    prisma.user.count({ where: { deletedAt: null } }),
-    prisma.warehouse.count({ where: { deletedAt: null, status: "PENDING" } }),
-    prisma.booking.count({ where: { deletedAt: null } }),
-    prisma.payment.aggregate({ where: { status: "SUCCEEDED" }, _sum: { amountBdt: true } })
-  ]);
-  return {
-    role,
-    profileComplete: true,
-    totalUsers,
-    warehousesAwaitingApproval: pendingWarehouses,
-    totalBookings,
-    platformRevenueBdt: Number(revenue._sum.amountBdt ?? 0)
-  };
-};
-var userService = {
-  getMeFromDb,
-  updateMeDb,
-  deleteMeDb,
-  getDashboardFromDb
-};
-
-// src/modules/user/user.controller.ts
-var getMe = catchAsync(async (req, res) => {
-  const user = await userService.getMeFromDb(req.user.id);
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Profile retrieved successfully",
-    data: user
-  });
-});
-var updateMe = catchAsync(async (req, res) => {
-  const user = await userService.updateMeDb(req.user.id, req.body);
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Profile updated successfully",
-    data: user
-  });
-});
-var deleteMe = catchAsync(async (req, res) => {
-  const { password } = req.body ?? {};
-  await userService.deleteMeDb(req.user.id, password);
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Account deleted successfully"
-  });
-});
-var getDashboard = catchAsync(async (req, res) => {
-  const current = req.user;
-  const data = await userService.getDashboardFromDb(current.id, current.role);
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Dashboard retrieved successfully",
-    data
-  });
-});
-var userController = {
-  getMe,
-  updateMe,
-  deleteMe,
-  getDashboard
-};
-
-// src/modules/user/user.validation.ts
-import { z as z14 } from "zod";
-var BANGLADESHI_PHONE2 = /^(?:\+?880|0)1[3-9]\d{8}$/;
-var updateMeSchema = z14.object({
-  body: z14.object({
-    name: z14.string().trim().min(2, { error: "name must be at least 2 characters" }).max(80, { error: "name must be at most 80 characters" }).optional(),
-    phone: z14.string().trim().regex(BANGLADESHI_PHONE2, {
-      error: "phone must be a valid Bangladeshi number, e.g. 01712345678"
-    }).optional(),
-    email: z14.undefined({
-      error: "Email cannot be changed. It is the permanent identifier for your account."
-    }).optional(),
-    role: z14.undefined({ error: "Role cannot be changed through this endpoint" }).optional(),
-    status: z14.undefined({ error: "Account status can only be changed by an admin" }).optional()
-  }).strict().refine((body) => body.name !== void 0 || body.phone !== void 0, {
-    error: "Provide at least one field to update: name or phone"
-  })
-});
-var deleteMeSchema = z14.object({
-  body: z14.object({
-    password: z14.string().min(1, { error: "password is required to delete your account" }).optional()
-  }).strict()
-});
-
-// src/modules/user/user.route.ts
-var router12 = Router12();
-router12.get("/me", auth, userController.getMe);
-router12.patch("/me", auth, validateRequest(updateMeSchema), userController.updateMe);
-router12.delete("/me", auth, validateRequest(deleteMeSchema), userController.deleteMe);
-router12.get("/me/dashboard", auth, userController.getDashboard);
-var userRoute = router12;
+var warehouseRoute = router12;
 
 // src/app.ts
 var app = express();
+app.set("trust proxy", 1);
 app.use(helmet());
 app.use(cors({ origin: env.FRONTEND_URL, credentials: true }));
 app.post(
@@ -5303,6 +5563,7 @@ app.use(cookieParser());
 app.get("/", (_req, res) => {
   res.send("server running....");
 });
+app.use("/api/v1", globalLimiter);
 app.use("/api/v1/auth", authRoute);
 app.use("/api/v1/admin", adminRoute);
 app.use("/api/v1/bookings", bookingRoute);

@@ -1,9 +1,6 @@
 import { catchAsync } from "../../utils/catchAsync.js";
 import { sendResponse } from "../../utils/sendResponse.js";
-import type {
-  ICreateOwnerProfilePayload,
-  IUpdateOwnerProfilePayload,
-} from "./owner.interface.js";
+import type { ICreateOwnerProfilePayload, IUpdateOwnerProfilePayload } from "./owner.interface.js";
 import { ownerService } from "./owner.service.js";
 
 const createOwnerProfile = catchAsync(async (req, res) => {
