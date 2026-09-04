@@ -6,7 +6,12 @@ import { env } from "./config/env.js";
 import { globalErrorHandler } from "./middlewares/globalErrorHandler.js";
 import { notFound } from "./middlewares/notFound.js";
 import { authRoute } from "./modules/auth/auth.route.js";
+import { adminRoute } from "./modules/admin/admin.route.js";
+import { chamberRoute, warehouseChamberRoute } from "./modules/chamber/chamber.route.js";
+import { cropTypeRoute } from "./modules/cropType/cropType.route.js";
 import { farmerRoute } from "./modules/farmer/farmer.route.js";
+import { warehouseReviewRoute } from "./modules/review/review.route.js";
+import { warehouseRoute } from "./modules/warehouse/warehouse.route.js";
 import { ownerRoute } from "./modules/owner/owner.route.js";
 import { userRoute } from "./modules/user/user.route.js";
 
@@ -23,6 +28,12 @@ app.get("/", (_req, res) => {
 });
 
 app.use("/api/v1/auth", authRoute);
+app.use("/api/v1/admin", adminRoute);
+app.use("/api/v1/crop-types", cropTypeRoute);
+app.use("/api/v1/warehouses/:warehouseId/chambers", warehouseChamberRoute);
+app.use("/api/v1/warehouses/:warehouseId/reviews", warehouseReviewRoute);
+app.use("/api/v1/warehouses", warehouseRoute);
+app.use("/api/v1/chambers", chamberRoute);
 app.use("/api/v1/users/me/farmer-profile", farmerRoute);
 app.use("/api/v1/users/me/owner-profile", ownerRoute);
 app.use("/api/v1/users", userRoute);

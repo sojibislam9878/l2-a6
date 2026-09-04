@@ -18,11 +18,38 @@ const toFieldPath = (segments: PropertyKey[]): string => {
   return (first !== undefined && REQUEST_PARTS.has(first) ? parts.slice(1) : parts).join(".");
 };
 
+type AdapterCause = {
+  constraint?: { index?: string; fields?: string[] };
+  table?: string;
+};
+
+const adapterCauseOf = (meta: Record<string, unknown> | undefined): AdapterCause | undefined => {
+  const wrapper = meta?.driverAdapterError as { cause?: AdapterCause } | undefined;
+  return wrapper?.cause;
+};
+
 const targetOf = (meta: Record<string, unknown> | undefined): string => {
   const target = meta?.target;
   if (Array.isArray(target)) return target.join(", ");
   if (typeof target === "string") return target;
-  return "field";
+
+  const cause = adapterCauseOf(meta);
+
+  if (cause?.constraint?.fields !== undefined) {
+    return cause.constraint.fields.join(", ");
+  }
+
+  const index = cause?.constraint?.index;
+
+  if (typeof index === "string") {
+    const withoutTable =
+      cause?.table !== undefined && index.startsWith(`${cause.table}_`)
+        ? index.slice(cause.table.length + 1)
+        : index;
+    return withoutTable.replace(/_key$/, "").split("_").join(" ");
+  }
+
+  return "value";
 };
 
 export const globalErrorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
