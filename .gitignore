@@ -9,7 +9,8 @@ projectReq.md
 projectStructure.md
 CHECKLIST.md
 API_ENDPOINTS.txt
-
+tests
+postman
 generated/
 
 .vercel/

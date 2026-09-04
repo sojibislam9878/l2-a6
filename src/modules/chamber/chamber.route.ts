@@ -3,6 +3,8 @@ import { auth } from "../../middlewares/auth.js";
 import { authorize } from "../../middlewares/authorize.js";
 import { requireCompleteProfile } from "../../middlewares/requireCompleteProfile.js";
 import { validateRequest } from "../../middlewares/validateRequest.js";
+import { availabilityController } from "../warehouse/availability.controller.js";
+import { chamberAvailabilitySchema } from "../warehouse/availability.validation.js";
 import { chamberController } from "./chamber.controller.js";
 import {
   chamberIdSchema,
@@ -24,6 +26,12 @@ nestedRouter.post(
 );
 
 const router = Router();
+
+router.get(
+  "/:id/availability",
+  validateRequest(chamberAvailabilitySchema),
+  availabilityController.getChamberAvailability,
+);
 
 router.get("/:id", validateRequest(chamberIdSchema), chamberController.getChamberById);
 router.patch(

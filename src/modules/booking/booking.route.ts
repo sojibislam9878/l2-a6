@@ -31,6 +31,13 @@ router.get(
 
 router.get("/:id", auth, validateRequest(bookingIdSchema), bookingController.getBookingById);
 
+router.get(
+  "/:id/invoice",
+  auth,
+  validateRequest(bookingIdSchema),
+  bookingController.getBookingInvoice,
+);
+
 router.patch(
   "/:id/approve",
   auth,

@@ -125,7 +125,14 @@ const completeBooking = catchAsync(async (req, res) => {
   });
 });
 
+const getBookingInvoice = catchAsync(async (req, res) => {
+  const data = await bookingService.getBookingInvoiceFromDb(String(req.params.id), actorOf(req));
+
+  sendResponse(res, { statusCode: 200, message: "Invoice retrieved successfully", data });
+});
+
 export const bookingController = {
+  getBookingInvoice,
   createBooking,
   getMyBookings,
   getAllBookings,

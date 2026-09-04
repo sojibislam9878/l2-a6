@@ -42,3 +42,36 @@ export const availableCapacityKg = (
   from: Date,
   to: Date,
 ): number => Math.max(0, capacityKg - peakLoadKg(bookings, from, to));
+
+export type DailyLoad = {
+  date: string;
+  usedKg: number;
+  freeKg: number;
+};
+
+export const dailyLoad = (
+  capacityKg: number,
+  bookings: BookingWindow[],
+  from: Date,
+  to: Date,
+): DailyLoad[] => {
+  const days: DailyLoad[] = [];
+
+  for (let cursor = from.getTime(); cursor <= to.getTime(); cursor += DAY_MS) {
+    let usedKg = 0;
+
+    for (const booking of bookings) {
+      if (booking.startDate.getTime() <= cursor && booking.endDate.getTime() >= cursor) {
+        usedKg += booking.quantityKg;
+      }
+    }
+
+    days.push({
+      date: new Date(cursor).toISOString().slice(0, 10),
+      usedKg,
+      freeKg: Math.max(0, capacityKg - usedKg),
+    });
+  }
+
+  return days;
+};

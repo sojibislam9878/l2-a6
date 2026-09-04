@@ -565,7 +565,75 @@ const completeBookingDb = async (
   );
 };
 
+const getBookingInvoiceFromDb = async (bookingId: string, actor: IActor) => {
+  const booking = await loadBookingForActor(bookingId, actor);
+
+  const warehouse = await prisma.warehouse.findUniqueOrThrow({
+    where: { id: booking.chamber.warehouse.id },
+    select: { minBookingDays: true },
+  });
+
+  const payment = await prisma.payment.findUnique({
+    where: { bookingId },
+    select: { id: true, status: true, amountBdt: true, amount: true, currency: true, fxRate: true, paidAt: true },
+  });
+
+  const paidBdt = payment !== null && payment.status === "SUCCEEDED" ? Number(payment.amountBdt) : 0;
+  const bookedDays = inclusiveDays(booking.startDate, booking.endDate);
+  const storedAt = booking.storedAt;
+  const endedAt = booking.withdrawnAt ?? new Date();
+  const actualDays = storedAt === null ? null : Math.max(1, inclusiveDays(storedAt, endedAt));
+
+  const settlement =
+    actualDays === null
+      ? null
+      : settleBooking({
+          quantityKg: booking.quantityKg,
+          ratePerKgPerDay: Number(booking.ratePerKgPerDay),
+          bookedDays,
+          actualDays,
+          minBookingDays: warehouse.minBookingDays,
+          alreadyPaidBdt: paidBdt,
+        });
+
+  return {
+    booking: toBooking(booking),
+    charges: {
+      quantityKg: booking.quantityKg,
+      ratePerKgPerDay: Number(booking.ratePerKgPerDay),
+      bookedDays,
+      minBookingDays: warehouse.minBookingDays,
+      estimatedCostBdt: Number(booking.estimatedCost),
+      actualDaysStored: actualDays,
+      settlement,
+      finalCostBdt: booking.finalCost === null ? null : Number(booking.finalCost),
+    },
+    payment:
+      payment === null
+        ? null
+        : {
+            id: payment.id,
+            status: payment.status,
+            amountBdt: Number(payment.amountBdt),
+            amountCharged: Number(payment.amount),
+            currency: payment.currency,
+            fxRate: Number(payment.fxRate),
+            paidAt: payment.paidAt,
+          },
+    balanceBdt: (() => {
+      if (booking.finalCost !== null) {
+        return Number(booking.finalCost) - paidBdt;
+      }
+      if (settlement !== null) {
+        return settlement.balance;
+      }
+      return Number(booking.estimatedCost) - paidBdt;
+    })(),
+  };
+};
+
 export const bookingService = {
+  getBookingInvoiceFromDb,
   createBookingDb,
   getBookingByIdFromDb,
   getMyBookingsFromDb,
