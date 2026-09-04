@@ -11,6 +11,8 @@ CHECKLIST.md
 API_ENDPOINTS.txt
 tests
 postman
+.claude
+.windsurf
 generated/
 
 .vercel/
