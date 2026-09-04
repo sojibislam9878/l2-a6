@@ -3,6 +3,8 @@ import { auth } from "../../middlewares/auth.js";
 import { authorize } from "../../middlewares/authorize.js";
 import { requireCompleteProfile } from "../../middlewares/requireCompleteProfile.js";
 import { validateRequest } from "../../middlewares/validateRequest.js";
+import { bookingController } from "../booking/booking.controller.js";
+import { warehouseBookingsSchema } from "../booking/booking.validation.js";
 import { warehouseController } from "./warehouse.controller.js";
 import {
   createWarehouseSchema,
@@ -31,6 +33,14 @@ router.post(
   requireCompleteProfile,
   validateRequest(createWarehouseSchema),
   warehouseController.createWarehouse,
+);
+
+router.get(
+  "/:id/bookings",
+  auth,
+  authorize("WAREHOUSE_OWNER"),
+  validateRequest(warehouseBookingsSchema),
+  bookingController.getWarehouseBookings,
 );
 
 router.get("/:id", validateRequest(warehouseIdSchema), warehouseController.getWarehouseById);

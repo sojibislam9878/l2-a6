@@ -7,8 +7,12 @@ import { globalErrorHandler } from "./middlewares/globalErrorHandler.js";
 import { notFound } from "./middlewares/notFound.js";
 import { authRoute } from "./modules/auth/auth.route.js";
 import { adminRoute } from "./modules/admin/admin.route.js";
+import { bookingRoute } from "./modules/booking/booking.route.js";
 import { chamberRoute, warehouseChamberRoute } from "./modules/chamber/chamber.route.js";
 import { cropTypeRoute } from "./modules/cropType/cropType.route.js";
+import { inspectionRoute } from "./modules/inspection/inspection.route.js";
+import { paymentController } from "./modules/payment/payment.controller.js";
+import { paymentRoute } from "./modules/payment/payment.route.js";
 import { farmerRoute } from "./modules/farmer/farmer.route.js";
 import { warehouseReviewRoute } from "./modules/review/review.route.js";
 import { warehouseRoute } from "./modules/warehouse/warehouse.route.js";
@@ -19,6 +23,12 @@ export const app = express();
 
 app.use(helmet());
 app.use(cors({ origin: env.FRONTEND_URL, credentials: true }));
+app.post(
+  "/api/v1/payments/webhook",
+  express.raw({ type: "application/json" }),
+  paymentController.handleWebhook,
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -29,7 +39,10 @@ app.get("/", (_req, res) => {
 
 app.use("/api/v1/auth", authRoute);
 app.use("/api/v1/admin", adminRoute);
+app.use("/api/v1/bookings", bookingRoute);
 app.use("/api/v1/crop-types", cropTypeRoute);
+app.use("/api/v1/inspections", inspectionRoute);
+app.use("/api/v1/payments", paymentRoute);
 app.use("/api/v1/warehouses/:warehouseId/chambers", warehouseChamberRoute);
 app.use("/api/v1/warehouses/:warehouseId/reviews", warehouseReviewRoute);
 app.use("/api/v1/warehouses", warehouseRoute);
