@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const CHAMBER_SORT_FIELDS = ["name", "capacityKg", "createdAt"] as const;
+
 const name = z
   .string({ error: "name is required" })
   .trim()
@@ -22,6 +24,10 @@ export const listChambersSchema = z.object({
   query: z
     .object({
       isActive: z.enum(["true", "false"]).optional(),
+      sortBy: z.enum(CHAMBER_SORT_FIELDS).optional(),
+      sortOrder: z.enum(["asc", "desc"]).optional(),
+      page: z.coerce.number().int().positive().optional(),
+      limit: z.coerce.number().int().positive().max(100).optional(),
     })
     .strict(),
 });

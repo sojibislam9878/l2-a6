@@ -10,12 +10,13 @@ import { cropTypeService } from "./cropType.service.js";
 
 const getCropTypes = catchAsync(async (_req, res) => {
   const filters = validatedQuery<ICropTypeFilters>(res);
-  const data = await cropTypeService.getCropTypesFromDb(filters);
+  const { data, meta } = await cropTypeService.getCropTypesFromDb(filters);
 
   sendResponse(res, {
     statusCode: 200,
     message: "Crop types retrieved successfully",
     data,
+    meta,
   });
 });
 

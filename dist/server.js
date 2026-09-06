@@ -3305,6 +3305,50 @@ var chamberAvailabilitySchema = z6.object({
   query: window
 });
 
+// src/modules/chamber/chamber.validation.ts
+import { z as z7 } from "zod";
+var CHAMBER_SORT_FIELDS = ["name", "capacityKg", "createdAt"];
+var name = z7.string({ error: "name is required" }).trim().min(1, { error: "name is required" }).max(60, { error: "name must be at most 60 characters" });
+var capacityKg = z7.coerce.number({ error: "capacityKg must be a number" }).int({ error: "capacityKg must be a whole number" }).positive({ error: "capacityKg must be greater than zero" }).max(1e7, { error: "capacityKg is unrealistically large" });
+var temperature = z7.coerce.number({ error: "temperature must be a number" }).min(-40, { error: "temperature must be at least -40C" }).max(40, { error: "temperature must be at most 40C" });
+var listChambersSchema = z7.object({
+  params: z7.object({ warehouseId: z7.uuid({ error: "warehouseId must be a valid uuid" }) }),
+  query: z7.object({
+    isActive: z7.enum(["true", "false"]).optional(),
+    sortBy: z7.enum(CHAMBER_SORT_FIELDS).optional(),
+    sortOrder: z7.enum(["asc", "desc"]).optional(),
+    page: z7.coerce.number().int().positive().optional(),
+    limit: z7.coerce.number().int().positive().max(100).optional()
+  }).strict()
+});
+var createChamberSchema = z7.object({
+  params: z7.object({ warehouseId: z7.uuid({ error: "warehouseId must be a valid uuid" }) }),
+  body: z7.object({
+    name,
+    capacityKg,
+    minTempC: temperature,
+    maxTempC: temperature
+  }).strict().refine((body) => body.maxTempC >= body.minTempC, {
+    error: "maxTempC must be greater than or equal to minTempC",
+    path: ["maxTempC"]
+  })
+});
+var updateChamberSchema = z7.object({
+  params: z7.object({ id: z7.uuid({ error: "id must be a valid uuid" }) }),
+  body: z7.object({
+    name: name.optional(),
+    capacityKg: capacityKg.optional(),
+    minTempC: temperature.optional(),
+    maxTempC: temperature.optional(),
+    isActive: z7.boolean().optional()
+  }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
+    error: "Provide at least one field to update"
+  })
+});
+var chamberIdSchema = z7.object({
+  params: z7.object({ id: z7.uuid({ error: "id must be a valid uuid" }) })
+});
+
 // src/modules/chamber/chamber.service.ts
 var chamberSelect = {
   id: true,
@@ -3349,16 +3393,30 @@ var assertWarehouseOwnership = async (warehouseId, ownerId) => {
 };
 var getChambersFromDb = async (warehouseId, filters) => {
   await assertWarehouseExists(warehouseId);
-  const rows = await prisma.chamber.findMany({
-    where: {
-      warehouseId,
-      deletedAt: null,
-      ...filters.isActive === void 0 ? {} : { isActive: filters.isActive === "true" }
-    },
-    select: chamberSelect,
-    orderBy: { name: "asc" }
-  });
-  return rows.map(toChamber);
+  const pagination = buildPagination(
+    { ...filters, sortOrder: filters.sortOrder ?? "asc" },
+    CHAMBER_SORT_FIELDS,
+    "name"
+  );
+  const where = {
+    warehouseId,
+    deletedAt: null,
+    ...filters.isActive === void 0 ? {} : { isActive: filters.isActive === "true" }
+  };
+  const [rows, total] = await Promise.all([
+    prisma.chamber.findMany({
+      where,
+      select: chamberSelect,
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.chamber.count({ where })
+  ]);
+  return {
+    data: rows.map(toChamber),
+    meta: buildMeta(pagination.page, pagination.limit, total)
+  };
 };
 var getChamberByIdFromDb = async (id) => {
   const row = await prisma.chamber.findFirst({
@@ -3445,11 +3503,15 @@ var chamberService = {
 // src/modules/chamber/chamber.controller.ts
 var getChambers = catchAsync(async (req, res) => {
   const filters = validatedQuery(res);
-  const data = await chamberService.getChambersFromDb(String(req.params.warehouseId), filters);
+  const { data, meta } = await chamberService.getChambersFromDb(
+    String(req.params.warehouseId),
+    filters
+  );
   sendResponse(res, {
     statusCode: 200,
     message: "Chambers retrieved successfully",
-    data
+    data,
+    meta
   });
 });
 var getChamberById = catchAsync(async (req, res) => {
@@ -3499,45 +3561,6 @@ var chamberController = {
   deleteChamber
 };
 
-// src/modules/chamber/chamber.validation.ts
-import { z as z7 } from "zod";
-var name = z7.string({ error: "name is required" }).trim().min(1, { error: "name is required" }).max(60, { error: "name must be at most 60 characters" });
-var capacityKg = z7.coerce.number({ error: "capacityKg must be a number" }).int({ error: "capacityKg must be a whole number" }).positive({ error: "capacityKg must be greater than zero" }).max(1e7, { error: "capacityKg is unrealistically large" });
-var temperature = z7.coerce.number({ error: "temperature must be a number" }).min(-40, { error: "temperature must be at least -40C" }).max(40, { error: "temperature must be at most 40C" });
-var listChambersSchema = z7.object({
-  params: z7.object({ warehouseId: z7.uuid({ error: "warehouseId must be a valid uuid" }) }),
-  query: z7.object({
-    isActive: z7.enum(["true", "false"]).optional()
-  }).strict()
-});
-var createChamberSchema = z7.object({
-  params: z7.object({ warehouseId: z7.uuid({ error: "warehouseId must be a valid uuid" }) }),
-  body: z7.object({
-    name,
-    capacityKg,
-    minTempC: temperature,
-    maxTempC: temperature
-  }).strict().refine((body) => body.maxTempC >= body.minTempC, {
-    error: "maxTempC must be greater than or equal to minTempC",
-    path: ["maxTempC"]
-  })
-});
-var updateChamberSchema = z7.object({
-  params: z7.object({ id: z7.uuid({ error: "id must be a valid uuid" }) }),
-  body: z7.object({
-    name: name.optional(),
-    capacityKg: capacityKg.optional(),
-    minTempC: temperature.optional(),
-    maxTempC: temperature.optional(),
-    isActive: z7.boolean().optional()
-  }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
-    error: "Provide at least one field to update"
-  })
-});
-var chamberIdSchema = z7.object({
-  params: z7.object({ id: z7.uuid({ error: "id must be a valid uuid" }) })
-});
-
 // src/modules/chamber/chamber.route.ts
 var nestedRouter = Router4({ mergeParams: true });
 nestedRouter.get("/", validateRequest(listChambersSchema), chamberController.getChambers);
@@ -3578,6 +3601,47 @@ var chamberRoute = router4;
 // src/modules/cropType/cropType.route.ts
 import { Router as Router5 } from "express";
 
+// src/modules/cropType/cropType.validation.ts
+import { z as z8 } from "zod";
+var CROP_TYPE_SORT_FIELDS = ["name", "maxStorageDays", "createdAt"];
+var name2 = z8.string({ error: "name is required" }).trim().min(2, { error: "name must be at least 2 characters" }).max(60, { error: "name must be at most 60 characters" });
+var temperature2 = z8.coerce.number({ error: "temperature must be a number" }).min(-40, { error: "temperature must be at least -40C" }).max(40, { error: "temperature must be at most 40C" });
+var maxStorageDays = z8.coerce.number({ error: "maxStorageDays must be a number" }).int({ error: "maxStorageDays must be a whole number" }).positive({ error: "maxStorageDays must be greater than zero" }).max(730, { error: "maxStorageDays cannot exceed 730" });
+var listCropTypesSchema = z8.object({
+  query: z8.object({
+    search: z8.string().trim().min(1).optional(),
+    sortBy: z8.enum(CROP_TYPE_SORT_FIELDS).optional(),
+    sortOrder: z8.enum(["asc", "desc"]).optional(),
+    page: z8.coerce.number().int().positive().optional(),
+    limit: z8.coerce.number().int().positive().max(100).optional()
+  }).strict()
+});
+var createCropTypeSchema = z8.object({
+  body: z8.object({
+    name: name2,
+    idealMinTempC: temperature2,
+    idealMaxTempC: temperature2,
+    maxStorageDays
+  }).strict().refine((body) => body.idealMaxTempC >= body.idealMinTempC, {
+    error: "idealMaxTempC must be greater than or equal to idealMinTempC",
+    path: ["idealMaxTempC"]
+  })
+});
+var updateCropTypeSchema = z8.object({
+  params: z8.object({ id: z8.uuid({ error: "id must be a valid uuid" }) }),
+  body: z8.object({
+    name: name2.optional(),
+    idealMinTempC: temperature2.optional(),
+    idealMaxTempC: temperature2.optional(),
+    maxStorageDays: maxStorageDays.optional()
+  }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
+    error: "Provide at least one field to update"
+  })
+});
+var cropTypeIdSchema = z8.object({
+  params: z8.object({ id: z8.uuid({ error: "id must be a valid uuid" }) })
+});
+
 // src/modules/cropType/cropType.service.ts
 var cropTypeSelect = {
   id: true,
@@ -3601,15 +3665,29 @@ var ACTIVE_BOOKING_STATUSES2 = [
   "WITHDRAW_REQUESTED"
 ];
 var getCropTypesFromDb = async (filters) => {
-  const rows = await prisma.cropType.findMany({
-    where: {
-      deletedAt: null,
-      ...filters.search === void 0 ? {} : { name: { contains: filters.search, mode: "insensitive" } }
-    },
-    select: cropTypeSelect,
-    orderBy: { name: "asc" }
-  });
-  return rows.map(toCropType);
+  const pagination = buildPagination(
+    { ...filters, sortOrder: filters.sortOrder ?? "asc" },
+    CROP_TYPE_SORT_FIELDS,
+    "name"
+  );
+  const where = {
+    deletedAt: null,
+    ...filters.search === void 0 ? {} : { name: { contains: filters.search, mode: "insensitive" } }
+  };
+  const [rows, total] = await Promise.all([
+    prisma.cropType.findMany({
+      where,
+      select: cropTypeSelect,
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.cropType.count({ where })
+  ]);
+  return {
+    data: rows.map(toCropType),
+    meta: buildMeta(pagination.page, pagination.limit, total)
+  };
 };
 var getCropTypeByIdFromDb = async (id) => {
   const row = await prisma.cropType.findFirst({
@@ -3683,11 +3761,12 @@ var cropTypeService = {
 // src/modules/cropType/cropType.controller.ts
 var getCropTypes = catchAsync(async (_req, res) => {
   const filters = validatedQuery(res);
-  const data = await cropTypeService.getCropTypesFromDb(filters);
+  const { data, meta } = await cropTypeService.getCropTypesFromDb(filters);
   sendResponse(res, {
     statusCode: 200,
     message: "Crop types retrieved successfully",
-    data
+    data,
+    meta
   });
 });
 var getCropTypeById = catchAsync(async (req, res) => {
@@ -3731,42 +3810,6 @@ var cropTypeController = {
   updateCropType,
   deleteCropType
 };
-
-// src/modules/cropType/cropType.validation.ts
-import { z as z8 } from "zod";
-var name2 = z8.string({ error: "name is required" }).trim().min(2, { error: "name must be at least 2 characters" }).max(60, { error: "name must be at most 60 characters" });
-var temperature2 = z8.coerce.number({ error: "temperature must be a number" }).min(-40, { error: "temperature must be at least -40C" }).max(40, { error: "temperature must be at most 40C" });
-var maxStorageDays = z8.coerce.number({ error: "maxStorageDays must be a number" }).int({ error: "maxStorageDays must be a whole number" }).positive({ error: "maxStorageDays must be greater than zero" }).max(730, { error: "maxStorageDays cannot exceed 730" });
-var listCropTypesSchema = z8.object({
-  query: z8.object({
-    search: z8.string().trim().min(1).optional()
-  }).strict()
-});
-var createCropTypeSchema = z8.object({
-  body: z8.object({
-    name: name2,
-    idealMinTempC: temperature2,
-    idealMaxTempC: temperature2,
-    maxStorageDays
-  }).strict().refine((body) => body.idealMaxTempC >= body.idealMinTempC, {
-    error: "idealMaxTempC must be greater than or equal to idealMinTempC",
-    path: ["idealMaxTempC"]
-  })
-});
-var updateCropTypeSchema = z8.object({
-  params: z8.object({ id: z8.uuid({ error: "id must be a valid uuid" }) }),
-  body: z8.object({
-    name: name2.optional(),
-    idealMinTempC: temperature2.optional(),
-    idealMaxTempC: temperature2.optional(),
-    maxStorageDays: maxStorageDays.optional()
-  }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
-    error: "Provide at least one field to update"
-  })
-});
-var cropTypeIdSchema = z8.object({
-  params: z8.object({ id: z8.uuid({ error: "id must be a valid uuid" }) })
-});
 
 // src/modules/cropType/cropType.route.ts
 var router5 = Router5();
@@ -4156,6 +4199,119 @@ router8.patch(
 );
 var ownerRoute = router8;
 
+// src/utils/paymentPage.ts
+var CONTENT = {
+  success: {
+    title: "Payment successful",
+    headline: "Payment successful",
+    detail: "Your storage lot is confirmed. The warehouse can now take your produce in.",
+    accent: "#2f7d32",
+    tint: "#eaf5ea",
+    glyph: "&#10003;"
+  },
+  processing: {
+    title: "Payment processing",
+    headline: "Payment received",
+    detail: "Stripe has taken the payment and we are waiting for the confirmation webhook. Refresh this page in a moment.",
+    accent: "#b26a00",
+    tint: "#fdf3e3",
+    glyph: "&#8987;"
+  },
+  failed: {
+    title: "Payment failed",
+    headline: "Payment failed",
+    detail: "The payment did not go through. Your booking is unchanged, you can try paying again.",
+    accent: "#b3261e",
+    tint: "#fdecea",
+    glyph: "&#10005;"
+  },
+  cancelled: {
+    title: "Payment cancelled",
+    headline: "Payment cancelled",
+    detail: "You left the checkout before paying. The booking is still held until its payment window expires.",
+    accent: "#5a6b5a",
+    tint: "#f0f4f0",
+    glyph: "&#8592;"
+  },
+  refunded: {
+    title: "Payment refunded",
+    headline: "Payment refunded",
+    detail: "This payment has been refunded. The amount will return to the original card.",
+    accent: "#1b5e9c",
+    tint: "#e8f1fa",
+    glyph: "&#8634;"
+  }
+};
+var renderPaymentPage = (outcome, details) => {
+  const content = CONTENT[outcome];
+  const rows = details.map(
+    (row) => `<div class="row"><span class="label">${row.label}</span><span class="value">${row.value}</span></div>`
+  ).join("");
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgroStore &mdash; ${content.title}</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: #f4f6f4;
+    color: #1b2a1b;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .card {
+    width: 100%;
+    max-width: 440px;
+    background: #fff;
+    border-radius: 14px;
+    padding: 32px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 8px 24px rgba(0,0,0,.04);
+  }
+  .glyph {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 26px;
+    font-weight: 700;
+    background: ${content.tint};
+    color: ${content.accent};
+    margin-bottom: 20px;
+  }
+  h1 { margin: 0 0 8px; font-size: 21px; color: ${content.accent}; }
+  p { margin: 0 0 24px; font-size: 14px; line-height: 1.55; color: #4a5c4a; }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 0;
+    border-top: 1px solid #eef2ee;
+    font-size: 13px;
+  }
+  .label { color: #6b7c6b; }
+  .value { font-weight: 600; text-align: right; word-break: break-all; }
+  footer { margin-top: 24px; font-size: 12px; color: #8a9a8a; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="glyph">${content.glyph}</div>
+    <h1>${content.headline}</h1>
+    <p>${content.detail}</p>
+    ${rows}
+    <footer>AgroStore &mdash; Agri Cold Storage Booking Platform</footer>
+  </main>
+</body>
+</html>`;
+};
+
 // src/lib/stripe.ts
 import Stripe from "stripe";
 var stripe = new Stripe(env.STRIPE_SECRET_KEY);
@@ -4275,7 +4431,7 @@ var createCheckoutSessionDb = async (farmerId, bookingId) => {
     ],
     metadata: { bookingId, paymentId: payment.id },
     success_url: `${env.APP_URL}/api/v1/payments/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${env.APP_URL}/api/v1/payments/cancel`
+    cancel_url: `${env.APP_URL}/api/v1/payments/cancel?session_id={CHECKOUT_SESSION_ID}`
   });
   if (session.url === null) {
     throw new AppError(502, "Stripe did not return a checkout URL");
@@ -4526,20 +4682,66 @@ var handleWebhook = catchAsync(async (req, res) => {
   const outcome = await paymentService.handleWebhookEvent(event);
   res.status(200).json({ received: true, type: event.type, outcome });
 });
+var OUTCOME_BY_STATUS = {
+  SUCCEEDED: "success",
+  PENDING: "processing",
+  FAILED: "failed",
+  REFUNDED: "refunded"
+};
+var OUTCOME_MESSAGE = {
+  success: "Payment confirmed. Your storage lot is booked.",
+  processing: "Payment received by Stripe. Waiting for confirmation, refresh in a moment.",
+  failed: "Payment failed. Your booking is unchanged, you can try again.",
+  cancelled: "Payment cancelled. The booking is still held until its payment window expires.",
+  refunded: "This payment has been refunded."
+};
+var respond = (req, res, outcome, data) => {
+  const message = OUTCOME_MESSAGE[outcome];
+  const format = typeof req.query.format === "string" ? req.query.format : "";
+  const acceptsHtml = (req.headers.accept ?? "").includes("text/html");
+  const wantsHtml = format === "html" || format !== "json" && acceptsHtml;
+  if (!wantsHtml) {
+    sendResponse(res, {
+      statusCode: 200,
+      message,
+      ...data === null ? {} : { data }
+    });
+    return;
+  }
+  const details = data === null ? [] : [
+    { label: "Lot", value: data.lotCode },
+    { label: "Amount", value: `${data.amountBdt} BDT` },
+    { label: "Charged", value: `${data.amount} ${data.currency.toUpperCase()}` },
+    { label: "Status", value: data.status }
+  ];
+  res.status(200).type("html").send(renderPaymentPage(outcome, details));
+};
 var paymentSuccess = catchAsync(async (req, res) => {
   const sessionId = req.query.session_id;
   if (typeof sessionId !== "string" || sessionId.length === 0) {
     throw new AppError(400, "session_id is required");
   }
   const data = await paymentService.getPaymentStatusBySessionId(sessionId);
-  const message = data.status === "SUCCEEDED" ? "Payment confirmed. Your lot is booked." : "Payment received by Stripe. Waiting for confirmation, refresh in a moment.";
-  sendResponse(res, { statusCode: 200, message, data });
+  const outcome = OUTCOME_BY_STATUS[data.status] ?? "processing";
+  respond(req, res, outcome, data);
 });
-var paymentCancel = catchAsync(async (_req, res) => {
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Payment cancelled. The booking is still held until the hold expires."
-  });
+var paymentFailed = catchAsync(async (req, res) => {
+  const sessionId = req.query.session_id;
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    respond(req, res, "failed", null);
+    return;
+  }
+  const data = await paymentService.getPaymentStatusBySessionId(sessionId);
+  respond(req, res, "failed", data);
+});
+var paymentCancel = catchAsync(async (req, res) => {
+  const sessionId = req.query.session_id;
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    respond(req, res, "cancelled", null);
+    return;
+  }
+  const data = await paymentService.getPaymentStatusBySessionId(sessionId);
+  respond(req, res, "cancelled", data);
 });
 var getMyPayments = catchAsync(async (req, res) => {
   const filters = validatedQuery(res);
@@ -4572,6 +4774,7 @@ var paymentController = {
   handleWebhook,
   paymentSuccess,
   paymentCancel,
+  paymentFailed,
   getMyPayments,
   getPaymentById,
   refundPayment
@@ -4610,6 +4813,7 @@ var refundPaymentSchema = z11.object({
 var router9 = Router9();
 router9.get("/success", paymentController.paymentSuccess);
 router9.get("/cancel", paymentController.paymentCancel);
+router9.get("/failed", paymentController.paymentFailed);
 router9.post(
   "/checkout-session",
   auth,

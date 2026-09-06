@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const CROP_TYPE_SORT_FIELDS = ["name", "maxStorageDays", "createdAt"] as const;
+
 const name = z
   .string({ error: "name is required" })
   .trim()
@@ -21,6 +23,10 @@ export const listCropTypesSchema = z.object({
   query: z
     .object({
       search: z.string().trim().min(1).optional(),
+      sortBy: z.enum(CROP_TYPE_SORT_FIELDS).optional(),
+      sortOrder: z.enum(["asc", "desc"]).optional(),
+      page: z.coerce.number().int().positive().optional(),
+      limit: z.coerce.number().int().positive().max(100).optional(),
     })
     .strict(),
 });

@@ -1,12 +1,14 @@
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
 import { invalidateWarehouseCache } from "../../utils/cacheKeys.js";
+import { buildMeta, buildPagination, type PaginationMeta } from "../../utils/paginate.js";
 import type {
   IChamber,
   IChamberFilters,
   ICreateChamberPayload,
   IUpdateChamberPayload,
 } from "./chamber.interface.js";
+import { CHAMBER_SORT_FIELDS } from "./chamber.validation.js";
 
 const chamberSelect = {
   id: true,
@@ -70,20 +72,36 @@ const assertWarehouseOwnership = async (warehouseId: string, ownerId: string): P
 const getChambersFromDb = async (
   warehouseId: string,
   filters: IChamberFilters,
-): Promise<IChamber[]> => {
+): Promise<{ data: IChamber[]; meta: PaginationMeta }> => {
   await assertWarehouseExists(warehouseId);
 
-  const rows = await prisma.chamber.findMany({
-    where: {
-      warehouseId,
-      deletedAt: null,
-      ...(filters.isActive === undefined ? {} : { isActive: filters.isActive === "true" }),
-    },
-    select: chamberSelect,
-    orderBy: { name: "asc" },
-  });
+  const pagination = buildPagination(
+    { ...filters, sortOrder: filters.sortOrder ?? "asc" },
+    CHAMBER_SORT_FIELDS,
+    "name",
+  );
 
-  return rows.map(toChamber);
+  const where = {
+    warehouseId,
+    deletedAt: null,
+    ...(filters.isActive === undefined ? {} : { isActive: filters.isActive === "true" }),
+  };
+
+  const [rows, total] = await Promise.all([
+    prisma.chamber.findMany({
+      where,
+      select: chamberSelect,
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+    }),
+    prisma.chamber.count({ where }),
+  ]);
+
+  return {
+    data: rows.map(toChamber),
+    meta: buildMeta(pagination.page, pagination.limit, total),
+  };
 };
 
 const getChamberByIdFromDb = async (id: string): Promise<IChamber> => {

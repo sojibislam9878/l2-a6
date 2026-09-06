@@ -1,12 +1,14 @@
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
 import { invalidateCropTypeCache } from "../../utils/cacheKeys.js";
+import { buildMeta, buildPagination, type PaginationMeta } from "../../utils/paginate.js";
 import type {
   ICreateCropTypePayload,
   ICropType,
   ICropTypeFilters,
   IUpdateCropTypePayload,
 } from "./cropType.interface.js";
+import { CROP_TYPE_SORT_FIELDS } from "./cropType.validation.js";
 
 const cropTypeSelect = {
   id: true,
@@ -40,19 +42,37 @@ const ACTIVE_BOOKING_STATUSES = [
   "WITHDRAW_REQUESTED",
 ] as const;
 
-const getCropTypesFromDb = async (filters: ICropTypeFilters): Promise<ICropType[]> => {
-  const rows = await prisma.cropType.findMany({
-    where: {
-      deletedAt: null,
-      ...(filters.search === undefined
-        ? {}
-        : { name: { contains: filters.search, mode: "insensitive" } }),
-    },
-    select: cropTypeSelect,
-    orderBy: { name: "asc" },
-  });
+const getCropTypesFromDb = async (
+  filters: ICropTypeFilters,
+): Promise<{ data: ICropType[]; meta: PaginationMeta }> => {
+  const pagination = buildPagination(
+    { ...filters, sortOrder: filters.sortOrder ?? "asc" },
+    CROP_TYPE_SORT_FIELDS,
+    "name",
+  );
 
-  return rows.map(toCropType);
+  const where = {
+    deletedAt: null,
+    ...(filters.search === undefined
+      ? {}
+      : { name: { contains: filters.search, mode: "insensitive" as const } }),
+  };
+
+  const [rows, total] = await Promise.all([
+    prisma.cropType.findMany({
+      where,
+      select: cropTypeSelect,
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+    }),
+    prisma.cropType.count({ where }),
+  ]);
+
+  return {
+    data: rows.map(toCropType),
+    meta: buildMeta(pagination.page, pagination.limit, total),
+  };
 };
 
 const getCropTypeByIdFromDb = async (id: string): Promise<ICropType> => {

@@ -10,12 +10,16 @@ import { chamberService } from "./chamber.service.js";
 
 const getChambers = catchAsync(async (req, res) => {
   const filters = validatedQuery<IChamberFilters>(res);
-  const data = await chamberService.getChambersFromDb(String(req.params.warehouseId), filters);
+  const { data, meta } = await chamberService.getChambersFromDb(
+    String(req.params.warehouseId),
+    filters,
+  );
 
   sendResponse(res, {
     statusCode: 200,
     message: "Chambers retrieved successfully",
     data,
+    meta,
   });
 });
 

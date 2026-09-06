@@ -6,21 +6,85 @@
   },
   "auth": {
     "type": "bearer",
-    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8000", "type": "string" },
-    { "key": "accessToken", "value": "", "type": "string" },
-    { "key": "cropTypeId", "value": "", "type": "string" },
-    { "key": "warehouseId", "value": "", "type": "string" },
-    { "key": "chamberId", "value": "", "type": "string" },
-    { "key": "bookingId", "value": "", "type": "string" },
-    { "key": "paymentId", "value": "", "type": "string" },
-    { "key": "reviewId", "value": "", "type": "string" },
-    { "key": "inspectionId", "value": "", "type": "string" },
-    { "key": "userId", "value": "", "type": "string" },
-    { "key": "startDate", "value": "2026-09-10", "type": "string" },
-    { "key": "endDate", "value": "2026-09-30", "type": "string" }
+    {
+      "key": "baseUrl",
+      "value": "https://sojibislam9878assignment6.vercel.app",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cropTypeId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "warehouseId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "chamberId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bookingId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "paymentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "reviewId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "inspectionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "startDate",
+      "value": "2026-09-10",
+      "type": "string"
+    },
+    {
+      "key": "endDate",
+      "value": "2026-09-30",
+      "type": "string"
+    },
+    {
+      "key": "loginEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "loginPassword",
+      "value": "",
+      "type": "string"
+    }
   ],
   "item": [
     {
@@ -29,10 +93,20 @@
         {
           "name": "Root",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/", "host": ["{{baseUrl}}"], "path": [""] },
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
             "description": "Plain-text liveness check. Returns `server running....`"
           },
           "response": []
@@ -46,15 +120,37 @@
         {
           "name": "Signup (Farmer)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Rahim Uddin\",\n  \"email\": \"rahim.farmer@agrostore.com\",\n  \"password\": \"Farmer@1234\",\n  \"phone\": \"01712345678\",\n  \"role\": \"FARMER\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/signup", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "signup"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/signup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "signup"
+              ]
+            },
             "description": "Creates the account and emails a 6-digit OTP. **No tokens are returned** — the user must verify before logging in.\n\n`role` accepts only `FARMER` or `WAREHOUSE_OWNER`. Sending `ADMIN` returns `400`; admin accounts can only be created by promoting an existing user.\n\nUnknown fields are rejected, so `status` or `role: ADMIN` cannot be smuggled in."
           },
           "response": [
@@ -62,42 +158,114 @@
               "name": "201 Created",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"name\": \"Rahim Uddin\",\n  \"email\": \"rahim.farmer@agrostore.com\",\n  \"password\": \"Farmer@1234\",\n  \"phone\": \"01712345678\",\n  \"role\": \"FARMER\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/auth/signup", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "signup"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rahim Uddin\",\n  \"email\": \"rahim.farmer@agrostore.com\",\n  \"password\": \"Farmer@1234\",\n  \"phone\": \"01712345678\",\n  \"role\": \"FARMER\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/signup",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "signup"
+                  ]
+                }
               },
               "status": "Created",
               "code": 201,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": true,\n  \"message\": \"Account created successfully\",\n  \"data\": {\n    \"id\": \"9dd52350-a2b4-4b78-b5ba-a89943849847\",\n    \"name\": \"Rahim Uddin\",\n    \"email\": \"rahim.farmer@agrostore.com\",\n    \"phone\": \"01712345678\",\n    \"role\": \"FARMER\",\n    \"status\": \"ACTIVE\",\n    \"createdAt\": \"2026-09-04T10:22:33.000Z\",\n    \"profileComplete\": true\n  }\n}"
             },
             {
               "name": "400 — role ADMIN rejected",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"name\": \"Someone\",\n  \"email\": \"someone@agrostore.com\",\n  \"password\": \"Admin@1234\",\n  \"role\": \"ADMIN\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/auth/signup", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "signup"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Someone\",\n  \"email\": \"someone@agrostore.com\",\n  \"password\": \"Admin@1234\",\n  \"role\": \"ADMIN\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/signup",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "signup"
+                  ]
+                }
               },
               "status": "Bad Request",
               "code": 400,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Validation failed\",\n  \"errors\": [\n    {\n      \"path\": \"role\",\n      \"message\": \"role must be either FARMER or WAREHOUSE_OWNER. ADMIN accounts cannot be created through the API.\"\n    }\n  ]\n}"
             },
             {
               "name": "409 — email already registered",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"name\": \"Rahim Uddin\",\n  \"email\": \"rahim.farmer@agrostore.com\",\n  \"password\": \"Farmer@1234\",\n  \"role\": \"FARMER\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/auth/signup", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "signup"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rahim Uddin\",\n  \"email\": \"rahim.farmer@agrostore.com\",\n  \"password\": \"Farmer@1234\",\n  \"role\": \"FARMER\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/signup",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "signup"
+                  ]
+                }
               },
               "status": "Conflict",
               "code": 409,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"An account with this email already exists\",\n  \"errors\": []\n}"
             }
           ]
@@ -105,15 +273,37 @@
         {
           "name": "Signup (Warehouse Owner)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Karim Cold Storage\",\n  \"email\": \"karim.owner@agrostore.com\",\n  \"password\": \"Owner@1234\",\n  \"phone\": \"01812345678\",\n  \"role\": \"WAREHOUSE_OWNER\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/signup", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "signup"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/signup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "signup"
+              ]
+            },
             "description": "Same endpoint, different role. The response comes back with `profileComplete: false` — a warehouse owner cannot list warehouses or manage chambers until they submit **Owner Profile → Create**."
           },
           "response": []
@@ -121,15 +311,37 @@
         {
           "name": "Verify OTP",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"rahim.farmer@agrostore.com\",\n  \"otp\": \"665124\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/verify-otp", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "verify-otp"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/verify-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "verify-otp"
+              ]
+            },
             "description": "Public — the OTP itself is the proof of identity, so no token is needed.\n\nThe code is stored in Redis as a SHA-256 hash with a 10-minute TTL, is single-use, and is destroyed after 5 wrong attempts."
           },
           "response": [
@@ -137,28 +349,76 @@
               "name": "400 — wrong code",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"email\": \"rahim.farmer@agrostore.com\",\n  \"otp\": \"000000\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/auth/verify-otp", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "verify-otp"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"rahim.farmer@agrostore.com\",\n  \"otp\": \"000000\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/verify-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "verify-otp"
+                  ]
+                }
               },
               "status": "Bad Request",
               "code": 400,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Incorrect code. 4 attempt(s) remaining.\",\n  \"errors\": []\n}"
             },
             {
               "name": "410 — expired or already used",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"email\": \"rahim.farmer@agrostore.com\",\n  \"otp\": \"665124\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/auth/verify-otp", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "verify-otp"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"rahim.farmer@agrostore.com\",\n  \"otp\": \"665124\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/verify-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "verify-otp"
+                  ]
+                }
               },
               "status": "Gone",
               "code": 410,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"This code has expired or was already used. Request a new one.\",\n  \"errors\": []\n}"
             }
           ]
@@ -166,15 +426,37 @@
         {
           "name": "Resend OTP",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"rahim.farmer@agrostore.com\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/resend-otp", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "resend-otp"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/resend-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "resend-otp"
+              ]
+            },
             "description": "Sends a fresh code and invalidates the previous one. Limited to one request per 60 seconds per email.\n\nAlways returns the same message whether or not the account exists, so it cannot be used to discover which emails are registered."
           },
           "response": []
@@ -201,58 +483,152 @@
             }
           ],
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"admin@agrostore.com\",\n  \"password\": \"Admin@1234\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] },
-            "description": "**Run this first.** The test script saves `accessToken` into a collection variable, so every other request in this collection authenticates automatically.\n\nSwap the email/password to switch role:\n\n| Role | Email | Password |\n|---|---|---|\n| Admin | `admin@agrostore.com` | `Admin@1234` |\n| Warehouse Owner | `owner@agrostore.com` | `Owner@1234` |\n| Farmer | `farmer@agrostore.com` | `Farmer@1234` |\n\nThe access token lives 15 minutes. The refresh token is set as an httpOnly cookie (7 days) which Postman stores and sends automatically.\n\nWrong password and unknown email return the **same** message on purpose — otherwise the endpoint becomes a user-enumeration oracle."
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Sets accessToken and userId for every other request. Fill the loginEmail and loginPassword collection variables with the credentials supplied with the submission before sending."
           },
           "response": [
             {
               "name": "200 OK",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"email\": \"farmer@agrostore.com\",\n  \"password\": \"Farmer@1234\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"farmer@agrostore.com\",\n  \"password\": \"Farmer@1234\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "login"
+                  ]
+                }
               },
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": true,\n  \"message\": \"Logged in successfully\",\n  \"data\": {\n    \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"user\": {\n      \"id\": \"9dd52350-a2b4-4b78-b5ba-a89943849847\",\n      \"name\": \"Rahim Uddin\",\n      \"email\": \"farmer@agrostore.com\",\n      \"phone\": \"01712345678\",\n      \"role\": \"FARMER\",\n      \"status\": \"ACTIVE\",\n      \"createdAt\": \"2026-09-04T10:22:33.000Z\",\n      \"profileComplete\": true\n    }\n  }\n}"
             },
             {
               "name": "403 — email not verified",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"email\": \"unverified@agrostore.com\",\n  \"password\": \"Farmer@1234\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"unverified@agrostore.com\",\n  \"password\": \"Farmer@1234\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "login"
+                  ]
+                }
               },
               "status": "Forbidden",
               "code": 403,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Email not verified. Submit the code sent to your email at POST /api/v1/auth/verify-otp\",\n  \"errors\": []\n}"
             },
             {
               "name": "401 — wrong credentials",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"email\": \"farmer@agrostore.com\",\n  \"password\": \"WrongPass1\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"farmer@agrostore.com\",\n  \"password\": \"WrongPass1\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "login"
+                  ]
+                }
               },
               "status": "Unauthorized",
               "code": 401,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Invalid email or password\",\n  \"errors\": []\n}"
             }
           ]
@@ -275,11 +651,37 @@
             }
           ],
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/refresh-token", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "refresh-token"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/refresh-token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "refresh-token"
+              ]
+            },
             "description": "Uses the httpOnly `refreshToken` cookie Postman stored at login — send an empty body.\n\nIssues a brand-new pair and **revokes the old refresh token**, so replaying it returns `401`. The user is re-read from the database, so a banned or deleted account cannot refresh even with a previously valid token.\n\nIf you are not using cookies, pass `{ \"refreshToken\": \"...\" }` explicitly."
           },
           "response": []
@@ -287,11 +689,37 @@
         {
           "name": "Logout",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/logout", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "logout"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
             "description": "Adds the session's `jti` to a Redis denylist until it would have expired.\n\nAccess and refresh tokens of a session share one `jti`, so this kills **both immediately** — the access token does not stay usable for its remaining 15 minutes. Idempotent: always `200`."
           },
           "response": []
@@ -300,13 +728,33 @@
           "name": "Set Password (Google accounts)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"newPassword\": \"GoogleUser@123\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/set-password", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "set-password"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/set-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "set-password"
+              ]
+            },
             "description": "For accounts created through Google, which have no password yet. Afterwards the user can sign in **either** way.\n\nReturns `409` if the account already has a password — use Change Password instead."
           },
           "response": []
@@ -315,13 +763,33 @@
           "name": "Change Password",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"currentPassword\": \"Farmer@1234\",\n  \"newPassword\": \"NewPass@123\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/auth/change-password", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "change-password"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "change-password"
+              ]
+            },
             "description": "Requires the current password. Returns `409` on a Google-only account (no password set) — use Set Password instead."
           },
           "response": []
@@ -329,14 +797,29 @@
         {
           "name": "Google Sign-in (open in browser)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/google?mode=json",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "google"],
-              "query": [{ "key": "mode", "value": "json", "description": "Return JSON from the callback instead of redirecting — lets you demo Google auth without a frontend." }]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "google"
+              ],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "json",
+                  "description": "Return JSON from the callback instead of redirecting — lets you demo Google auth without a frontend."
+                }
+              ]
             },
             "description": "Redirects (302) to the Google consent screen. **Open this in a browser**, not in Postman.\n\nGoogle accounts are always created as `FARMER` and are auto email-verified — no OTP needed, since Google already proved ownership of the address. Warehouse owners and admins are refused with `403`.\n\nAn existing farmer who signed up with a password gets their `googleId` linked to the same account rather than a duplicate.\n\nThe flow uses a CSRF `state` value stored in Redis with a 5-minute TTL, deleted on use."
           },
@@ -353,7 +836,18 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/users/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me"
+              ]
+            },
             "description": "Returns the signed-in user. `profileComplete` is `false` for a warehouse owner who has not created their business profile yet."
           },
           "response": [
@@ -362,12 +856,28 @@
               "originalRequest": {
                 "method": "GET",
                 "header": [],
-                "url": { "raw": "{{baseUrl}}/api/v1/users/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me"] }
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/users/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "users",
+                    "me"
+                  ]
+                }
               },
               "status": "Unauthorized",
               "code": 401,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Authentication required. Send an Authorization: Bearer <token> header.\",\n  \"errors\": []\n}"
             }
           ]
@@ -376,13 +886,33 @@
           "name": "Update My Profile",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Rahim Uddin\",\n  \"phone\": \"01822222222\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/users/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me"
+              ]
+            },
             "description": "Only `name` and `phone`. At least one is required.\n\nSending `email`, `role` or `status` returns `400` with a message explaining why — silently ignoring `role` is how privilege-escalation bugs happen."
           },
           "response": [
@@ -390,14 +920,38 @@
               "name": "400 — email is immutable",
               "originalRequest": {
                 "method": "PATCH",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"email\": \"hacker@evil.com\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/users/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"hacker@evil.com\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/users/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "users",
+                    "me"
+                  ]
+                }
               },
               "status": "Bad Request",
               "code": 400,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Validation failed\",\n  \"errors\": [\n    {\n      \"path\": \"email\",\n      \"message\": \"Email cannot be changed. It is the permanent identifier for your account.\"\n    }\n  ]\n}"
             }
           ]
@@ -407,7 +961,19 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/users/me/dashboard", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me", "dashboard"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me/dashboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me",
+                "dashboard"
+              ]
+            },
             "description": "Role-aware aggregates.\n\n- **Farmer** — total / active / completed bookings, total spent\n- **Warehouse owner** — warehouses, approved warehouses, chambers, bookings awaiting approval\n- **Admin** — users, warehouses awaiting approval, bookings, platform revenue"
           },
           "response": []
@@ -416,13 +982,33 @@
           "name": "Delete My Account",
           "request": {
             "method": "DELETE",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"password\": \"Farmer@1234\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/users/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me"
+              ]
+            },
             "description": "**Soft delete** — sets `deletedAt`; the row stays in the database and is hidden from every read.\n\nPassword confirmation is required, because a stolen bearer token alone should not be enough to destroy an account. Google-only accounts (no password) may send an empty body.\n\nThe email stays reserved, so the same address cannot re-register."
           },
           "response": []
@@ -437,13 +1023,34 @@
           "name": "Create Farmer Profile",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"district\": \"Rangpur\",\n  \"upazila\": \"Pirgacha\",\n  \"nid\": \"1234567890\",\n  \"farmSizeAcre\": 12.5\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/users/me/farmer-profile", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me", "farmer-profile"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me/farmer-profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me",
+                "farmer-profile"
+              ]
+            },
             "description": "FARMER only. Only `district` is required. `nid` must be 10, 13 or 17 digits and is unique across the platform."
           },
           "response": []
@@ -453,7 +1060,19 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/users/me/farmer-profile", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me", "farmer-profile"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me/farmer-profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me",
+                "farmer-profile"
+              ]
+            },
             "description": "FARMER only. Returns `404` if not created yet, `403` if the caller is an owner or admin."
           },
           "response": []
@@ -462,13 +1081,34 @@
           "name": "Update Farmer Profile",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"farmSizeAcre\": 20\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/users/me/farmer-profile", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me", "farmer-profile"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me/farmer-profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me",
+                "farmer-profile"
+              ]
+            },
             "description": "Any subset of the four fields. At least one is required."
           },
           "response": []
@@ -483,13 +1123,34 @@
           "name": "Create Owner Profile",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"businessName\": \"Karim Cold Storage\",\n  \"tradeLicenseNo\": \"TL-99881\",\n  \"nid\": \"1234567890123\",\n  \"district\": \"Rangpur\",\n  \"address\": \"Station Road, Rangpur\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/users/me/owner-profile", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me", "owner-profile"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me/owner-profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me",
+                "owner-profile"
+              ]
+            },
             "description": "WAREHOUSE_OWNER only. All five fields required.\n\n`tradeLicenseNo` and `nid` are unique platform-wide, so two owners cannot claim the same trade licence — that is what makes this a verification record rather than free text.\n\nOnce created, `GET /users/me` flips `profileComplete` to `true` and owner actions unlock."
           },
           "response": [
@@ -497,14 +1158,37 @@
               "name": "403 — action gated on this profile",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"name\": \"Rangpur Cold Store\",\n  \"district\": \"Rangpur\",\n  \"address\": \"Station Road\",\n  \"licenseNo\": \"WL-1\",\n  \"ratePerKgPerDay\": 0.05\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/warehouses", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouses"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Rangpur Cold Store\",\n  \"district\": \"Rangpur\",\n  \"address\": \"Station Road\",\n  \"licenseNo\": \"WL-1\",\n  \"ratePerKgPerDay\": 0.05\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/warehouses",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "warehouses"
+                  ]
+                }
               },
               "status": "Forbidden",
               "code": 403,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Complete your warehouse owner profile before using this feature. Submit POST /api/v1/users/me/owner-profile with businessName, tradeLicenseNo, nid, district and address.\",\n  \"errors\": []\n}"
             }
           ]
@@ -514,7 +1198,19 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/users/me/owner-profile", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me", "owner-profile"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me/owner-profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me",
+                "owner-profile"
+              ]
+            },
             "description": "WAREHOUSE_OWNER only."
           },
           "response": []
@@ -523,13 +1219,34 @@
           "name": "Update Owner Profile",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"district\": \"Munshiganj\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/users/me/owner-profile", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me", "owner-profile"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me/owner-profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me",
+                "owner-profile"
+              ]
+            },
             "description": "Any subset of the five fields. At least one is required."
           },
           "response": []
@@ -558,14 +1275,29 @@
             }
           ],
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/crop-types?search=potato",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "crop-types"],
-              "query": [{ "key": "search", "value": "potato", "description": "Optional. Matches name, case-insensitive.", "disabled": true }]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "crop-types"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "potato",
+                  "description": "Optional. Matches name, case-insensitive.",
+                  "disabled": true
+                }
+              ]
             },
             "description": "Public. Saves the first result into `cropTypeId` for later requests."
           },
@@ -575,12 +1307,27 @@
               "originalRequest": {
                 "method": "GET",
                 "header": [],
-                "url": { "raw": "{{baseUrl}}/api/v1/crop-types", "host": ["{{baseUrl}}"], "path": ["api", "v1", "crop-types"] }
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/crop-types",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "crop-types"
+                  ]
+                }
               },
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": true,\n  \"message\": \"Crop types retrieved successfully\",\n  \"data\": [\n    {\n      \"id\": \"bfd56672-aecb-4541-8b8a-002298194db0\",\n      \"name\": \"Potato\",\n      \"idealMinTempC\": 2,\n      \"idealMaxTempC\": 4,\n      \"maxStorageDays\": 180\n    }\n  ]\n}"
             }
           ]
@@ -588,10 +1335,23 @@
         {
           "name": "Get Crop Type",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/crop-types/{{cropTypeId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "crop-types", "{{cropTypeId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/crop-types/{{cropTypeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "crop-types",
+                "{{cropTypeId}}"
+              ]
+            },
             "description": "Public."
           },
           "response": []
@@ -600,13 +1360,32 @@
           "name": "Create Crop Type (admin)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Potato\",\n  \"idealMinTempC\": 2,\n  \"idealMaxTempC\": 4,\n  \"maxStorageDays\": 180\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/crop-types", "host": ["{{baseUrl}}"], "path": ["api", "v1", "crop-types"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/crop-types",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "crop-types"
+              ]
+            },
             "description": "ADMIN only. `idealMaxTempC` must be greater than or equal to `idealMinTempC`."
           },
           "response": [
@@ -614,14 +1393,37 @@
               "name": "403 — not an admin",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"name\": \"Potato\",\n  \"idealMinTempC\": 2,\n  \"idealMaxTempC\": 4,\n  \"maxStorageDays\": 180\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/crop-types", "host": ["{{baseUrl}}"], "path": ["api", "v1", "crop-types"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Potato\",\n  \"idealMinTempC\": 2,\n  \"idealMaxTempC\": 4,\n  \"maxStorageDays\": 180\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/crop-types",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "crop-types"
+                  ]
+                }
               },
               "status": "Forbidden",
               "code": 403,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"This action is restricted to: ADMIN\",\n  \"errors\": []\n}"
             }
           ]
@@ -630,13 +1432,33 @@
           "name": "Update Crop Type (admin)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"maxStorageDays\": 200\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/crop-types/{{cropTypeId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "crop-types", "{{cropTypeId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/crop-types/{{cropTypeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "crop-types",
+                "{{cropTypeId}}"
+              ]
+            },
             "description": "ADMIN only. Any subset of the four fields."
           },
           "response": []
@@ -646,7 +1468,18 @@
           "request": {
             "method": "DELETE",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/crop-types/{{cropTypeId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "crop-types", "{{cropTypeId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/crop-types/{{cropTypeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "crop-types",
+                "{{cropTypeId}}"
+              ]
+            },
             "description": "ADMIN only. **Soft delete.** Blocked with `409` while any active booking still references the crop type."
           },
           "response": []
@@ -675,25 +1508,80 @@
             }
           ],
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/warehouses?district=Rangpur&sortBy=ratePerKgPerDay&sortOrder=asc&page=1&limit=10",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "warehouses"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses"
+              ],
               "query": [
-                { "key": "district", "value": "Rangpur", "description": "Exact match, case-insensitive." },
-                { "key": "sortBy", "value": "ratePerKgPerDay", "description": "createdAt | name | ratePerKgPerDay | avgRating" },
-                { "key": "sortOrder", "value": "asc", "description": "asc | desc (default desc)" },
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "10", "description": "Max 100." },
-                { "key": "search", "value": "cold", "description": "Matches name or address, case-insensitive.", "disabled": true },
-                { "key": "cropTypeId", "value": "{{cropTypeId}}", "description": "Only warehouses with a chamber whose temperature range contains this crop's ideal range.", "disabled": true },
-                { "key": "minCapacityKg", "value": "5000", "description": "Only warehouses with a chamber of at least this capacity.", "disabled": true },
-                { "key": "minRate", "value": "0.01", "disabled": true },
-                { "key": "maxRate", "value": "0.10", "disabled": true },
-                { "key": "minRating", "value": "4", "description": "1 to 5.", "disabled": true }
+                {
+                  "key": "district",
+                  "value": "Rangpur",
+                  "description": "Exact match, case-insensitive."
+                },
+                {
+                  "key": "sortBy",
+                  "value": "ratePerKgPerDay",
+                  "description": "createdAt | name | ratePerKgPerDay | avgRating"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "asc",
+                  "description": "asc | desc (default desc)"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Max 100."
+                },
+                {
+                  "key": "search",
+                  "value": "cold",
+                  "description": "Matches name or address, case-insensitive.",
+                  "disabled": true
+                },
+                {
+                  "key": "cropTypeId",
+                  "value": "{{cropTypeId}}",
+                  "description": "Only warehouses with a chamber whose temperature range contains this crop's ideal range.",
+                  "disabled": true
+                },
+                {
+                  "key": "minCapacityKg",
+                  "value": "5000",
+                  "description": "Only warehouses with a chamber of at least this capacity.",
+                  "disabled": true
+                },
+                {
+                  "key": "minRate",
+                  "value": "0.01",
+                  "disabled": true
+                },
+                {
+                  "key": "maxRate",
+                  "value": "0.10",
+                  "disabled": true
+                },
+                {
+                  "key": "minRating",
+                  "value": "4",
+                  "description": "1 to 5.",
+                  "disabled": true
+                }
               ]
             },
             "description": "Public search with filtering, sorting and pagination.\n\nThe `cropTypeId` filter is the interesting one — it reads the crop's ideal temperature range and returns only warehouses with a chamber that can actually hold it. That is the same rule the booking engine enforces, surfaced as a filter.\n\nAn unknown `sortBy` is rejected with `400` rather than silently ignored — the whitelist prevents sorting by arbitrary columns."
@@ -704,12 +1592,33 @@
               "originalRequest": {
                 "method": "GET",
                 "header": [],
-                "url": { "raw": "{{baseUrl}}/api/v1/warehouses?district=Rangpur", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouses"], "query": [{ "key": "district", "value": "Rangpur" }] }
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/warehouses?district=Rangpur",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "warehouses"
+                  ],
+                  "query": [
+                    {
+                      "key": "district",
+                      "value": "Rangpur"
+                    }
+                  ]
+                }
               },
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": true,\n  \"message\": \"Warehouses retrieved successfully\",\n  \"data\": [\n    {\n      \"id\": \"37ebb4e5-822f-4b98-a6ba-ba6807478bf8\",\n      \"name\": \"Rangpur Cold Store\",\n      \"district\": \"Rangpur\",\n      \"address\": \"Station Road, Rangpur\",\n      \"ratePerKgPerDay\": 0.05,\n      \"minBookingDays\": 7,\n      \"status\": \"APPROVED\",\n      \"avgRating\": 4.5,\n      \"reviewCount\": 2,\n      \"chamberCount\": 2,\n      \"totalCapacityKg\": 35000,\n      \"createdAt\": \"2026-09-04T10:22:33.000Z\"\n    }\n  ],\n  \"meta\": {\n    \"page\": 1,\n    \"limit\": 10,\n    \"total\": 1,\n    \"totalPages\": 1\n  }\n}"
             },
             {
@@ -717,12 +1626,33 @@
               "originalRequest": {
                 "method": "GET",
                 "header": [],
-                "url": { "raw": "{{baseUrl}}/api/v1/warehouses?sortBy=password", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouses"], "query": [{ "key": "sortBy", "value": "password" }] }
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/warehouses?sortBy=password",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "warehouses"
+                  ],
+                  "query": [
+                    {
+                      "key": "sortBy",
+                      "value": "password"
+                    }
+                  ]
+                }
               },
               "status": "Bad Request",
               "code": 400,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Validation failed\",\n  \"errors\": [\n    {\n      \"path\": \"sortBy\",\n      \"message\": \"Invalid option: expected one of \\\"createdAt\\\"|\\\"name\\\"|\\\"ratePerKgPerDay\\\"|\\\"avgRating\\\"\"\n    }\n  ]\n}"
             }
           ]
@@ -730,10 +1660,23 @@
         {
           "name": "Get Warehouse",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouses", "{{warehouseId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses",
+                "{{warehouseId}}"
+              ]
+            },
             "description": "Public. Returns any non-deleted warehouse regardless of status, so a farmer can see that one is still `PENDING`. Includes owner name and business name."
           },
           "response": []
@@ -745,12 +1688,30 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/warehouses/me?page=1&limit=10",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "warehouses", "me"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses",
+                "me"
+              ],
               "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "10" },
-                { "key": "status", "value": "PENDING", "description": "PENDING | APPROVED | REJECTED | SUSPENDED", "disabled": true }
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "status",
+                  "value": "PENDING",
+                  "description": "PENDING | APPROVED | REJECTED | SUSPENDED",
+                  "disabled": true
+                }
               ]
             },
             "description": "WAREHOUSE_OWNER only. Shows the owner's own warehouses in every status, including ones not yet approved."
@@ -776,13 +1737,32 @@
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Rangpur Cold Store\",\n  \"district\": \"Rangpur\",\n  \"address\": \"Station Road, Rangpur\",\n  \"licenseNo\": \"WL-99881\",\n  \"ratePerKgPerDay\": 0.05,\n  \"minBookingDays\": 7\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/warehouses", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouses"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/warehouses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses"
+              ]
+            },
             "description": "WAREHOUSE_OWNER only, and the owner profile must exist.\n\nNew warehouses start as `PENDING` and are invisible to farmers until an admin approves them. Sending `status` is rejected — owners cannot approve themselves."
           },
           "response": []
@@ -791,13 +1771,33 @@
           "name": "Update Warehouse (owner)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"ratePerKgPerDay\": 0.06\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouses", "{{warehouseId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses",
+                "{{warehouseId}}"
+              ]
+            },
             "description": "Owner only, and only for **their own** warehouse — another owner gets `403` from an ownership check that is separate from the role check."
           },
           "response": [
@@ -805,14 +1805,38 @@
               "name": "403 — someone else's warehouse",
               "originalRequest": {
                 "method": "PATCH",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"ratePerKgPerDay\": 0.01\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouses", "{{warehouseId}}"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ratePerKgPerDay\": 0.01\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "warehouses",
+                    "{{warehouseId}}"
+                  ]
+                }
               },
               "status": "Forbidden",
               "code": 403,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"You can only manage warehouses that belong to you\",\n  \"errors\": []\n}"
             }
           ]
@@ -822,7 +1846,18 @@
           "request": {
             "method": "DELETE",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouses", "{{warehouseId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses",
+                "{{warehouseId}}"
+              ]
+            },
             "description": "**Soft delete**, and it cascades to the warehouse's chambers inside one transaction.\n\nRefused with `409` while any lot is still stored — you cannot delete a warehouse holding someone's potatoes."
           },
           "response": []
@@ -830,17 +1865,40 @@
         {
           "name": "Warehouse Availability (public)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}/availability?startDate={{startDate}}&endDate={{endDate}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "warehouses", "{{warehouseId}}", "availability"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses",
+                "{{warehouseId}}",
+                "availability"
+              ],
               "query": [
-                { "key": "startDate", "value": "{{startDate}}", "description": "YYYY-MM-DD" },
-                { "key": "endDate", "value": "{{endDate}}", "description": "YYYY-MM-DD" },
-                { "key": "cropTypeId", "value": "{{cropTypeId}}", "description": "Marks which chambers can legally hold this crop.", "disabled": true }
+                {
+                  "key": "startDate",
+                  "value": "{{startDate}}",
+                  "description": "YYYY-MM-DD"
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{endDate}}",
+                  "description": "YYYY-MM-DD"
+                },
+                {
+                  "key": "cropTypeId",
+                  "value": "{{cropTypeId}}",
+                  "description": "Marks which chambers can legally hold this crop.",
+                  "disabled": true
+                }
               ]
             },
             "description": "Free capacity per chamber for an exact date window.\n\nCapacity is **kilograms × overlapping date ranges**, so this is not a simple \"is it free?\" check — it returns the *peak* committed load inside the window, which is what limits a new booking."
@@ -851,12 +1909,39 @@
               "originalRequest": {
                 "method": "GET",
                 "header": [],
-                "url": { "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}/availability?startDate=2026-09-10&endDate=2026-09-30", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouses", "{{warehouseId}}", "availability"], "query": [{ "key": "startDate", "value": "2026-09-10" }, { "key": "endDate", "value": "2026-09-30" }] }
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}/availability?startDate=2026-09-10&endDate=2026-09-30",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "warehouses",
+                    "{{warehouseId}}",
+                    "availability"
+                  ],
+                  "query": [
+                    {
+                      "key": "startDate",
+                      "value": "2026-09-10"
+                    },
+                    {
+                      "key": "endDate",
+                      "value": "2026-09-30"
+                    }
+                  ]
+                }
               },
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": true,\n  \"message\": \"Warehouse availability retrieved successfully\",\n  \"data\": {\n    \"warehouse\": {\n      \"id\": \"37ebb4e5-822f-4b98-a6ba-ba6807478bf8\",\n      \"name\": \"Rangpur Cold Store\",\n      \"status\": \"APPROVED\",\n      \"minBookingDays\": 7,\n      \"ratePerKgPerDay\": 0.05\n    },\n    \"window\": {\n      \"startDate\": \"2026-09-10\",\n      \"endDate\": \"2026-09-30\",\n      \"days\": 21\n    },\n    \"cropType\": null,\n    \"meetsMinBookingDays\": true,\n    \"withinCropMaxStorageDays\": null,\n    \"totalAvailableKg\": 6500,\n    \"chambers\": [\n      {\n        \"id\": \"e867b9ec-ccb2-4b85-8b90-4398a83b3f5e\",\n        \"name\": \"C-1\",\n        \"capacityKg\": 10000,\n        \"minTempC\": 1,\n        \"maxTempC\": 5,\n        \"peakUsedKg\": 3500,\n        \"availableKg\": 6500,\n        \"fitsCrop\": null\n      }\n    ]\n  }\n}"
             }
           ]
@@ -868,12 +1953,32 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}/bookings?status=PENDING_APPROVAL",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "warehouses", "{{warehouseId}}", "bookings"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses",
+                "{{warehouseId}}",
+                "bookings"
+              ],
               "query": [
-                { "key": "status", "value": "PENDING_APPROVAL", "description": "Filter by booking status." },
-                { "key": "page", "value": "1", "disabled": true },
-                { "key": "limit", "value": "10", "disabled": true }
+                {
+                  "key": "status",
+                  "value": "PENDING_APPROVAL",
+                  "description": "Filter by booking status."
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "disabled": true
+                }
               ]
             },
             "description": "WAREHOUSE_OWNER only, own warehouse only. This is the incoming-requests queue an owner works through."
@@ -904,14 +2009,31 @@
             }
           ],
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}/chambers",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "warehouses", "{{warehouseId}}", "chambers"],
-              "query": [{ "key": "isActive", "value": "true", "description": "true | false", "disabled": true }]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses",
+                "{{warehouseId}}",
+                "chambers"
+              ],
+              "query": [
+                {
+                  "key": "isActive",
+                  "value": "true",
+                  "description": "true | false",
+                  "disabled": true
+                }
+              ]
             },
             "description": "Public. Saves the first chamber into `chamberId`."
           },
@@ -921,13 +2043,34 @@
           "name": "Create Chamber (owner)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"C-1\",\n  \"capacityKg\": 20000,\n  \"minTempC\": 1,\n  \"maxTempC\": 5\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}/chambers", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouses", "{{warehouseId}}", "chambers"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}/chambers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses",
+                "{{warehouseId}}",
+                "chambers"
+              ]
+            },
             "description": "WAREHOUSE_OWNER only, own warehouse only, owner profile required.\n\nChamber names are unique **within** a warehouse — a duplicate returns `409`. `maxTempC` must be greater than or equal to `minTempC`."
           },
           "response": []
@@ -935,10 +2078,23 @@
         {
           "name": "Get Chamber",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/chambers/{{chamberId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "chambers", "{{chamberId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chambers/{{chamberId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chambers",
+                "{{chamberId}}"
+              ]
+            },
             "description": "Public."
           },
           "response": []
@@ -946,17 +2102,37 @@
         {
           "name": "Chamber Availability (public)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/chambers/{{chamberId}}/availability?startDate={{startDate}}&endDate={{endDate}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "chambers", "{{chamberId}}", "availability"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chambers",
+                "{{chamberId}}",
+                "availability"
+              ],
               "query": [
-                { "key": "startDate", "value": "{{startDate}}" },
-                { "key": "endDate", "value": "{{endDate}}" },
-                { "key": "cropTypeId", "value": "{{cropTypeId}}", "disabled": true }
+                {
+                  "key": "startDate",
+                  "value": "{{startDate}}"
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{endDate}}"
+                },
+                {
+                  "key": "cropTypeId",
+                  "value": "{{cropTypeId}}",
+                  "disabled": true
+                }
               ]
             },
             "description": "Peak committed load, free capacity, and a **day-by-day breakdown** of used/free kilograms for windows up to 92 days.\n\nThis is the capacity engine made visible — you can see exactly which dates are tight."
@@ -967,13 +2143,33 @@
           "name": "Update Chamber (owner)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"isActive\": true,\n  \"capacityKg\": 25000\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/chambers/{{chamberId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "chambers", "{{chamberId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chambers/{{chamberId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chambers",
+                "{{chamberId}}"
+              ]
+            },
             "description": "Owner only, own warehouse only. Setting `isActive: false` stops new bookings without deleting anything."
           },
           "response": []
@@ -983,7 +2179,18 @@
           "request": {
             "method": "DELETE",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/chambers/{{chamberId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "chambers", "{{chamberId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chambers/{{chamberId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chambers",
+                "{{chamberId}}"
+              ]
+            },
             "description": "**Soft delete.** Refused with `409` while any lot is still stored in it."
           },
           "response": []
@@ -1013,13 +2220,32 @@
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"chamberId\": \"{{chamberId}}\",\n  \"cropTypeId\": \"{{cropTypeId}}\",\n  \"quantityKg\": 2000,\n  \"startDate\": \"{{startDate}}\",\n  \"endDate\": \"{{endDate}}\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/bookings", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings"
+              ]
+            },
             "description": "FARMER only. Rules enforced, in order:\n\n1. `startDate` not in the past, at most 90 days ahead\n2. Chamber active, warehouse `APPROVED`\n3. **Crop temperature must fit inside the chamber's range** — `422` otherwise\n4. Duration at least the warehouse's `minBookingDays`\n5. Duration at most the crop's `maxStorageDays`\n6. **Quantity within peak free capacity for the window** — `409` otherwise, inside a row-locked transaction"
           },
           "response": [
@@ -1027,42 +2253,111 @@
               "name": "201 Created",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"chamberId\": \"{{chamberId}}\",\n  \"cropTypeId\": \"{{cropTypeId}}\",\n  \"quantityKg\": 2000,\n  \"startDate\": \"2026-09-10\",\n  \"endDate\": \"2026-09-30\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/bookings", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"chamberId\": \"{{chamberId}}\",\n  \"cropTypeId\": \"{{cropTypeId}}\",\n  \"quantityKg\": 2000,\n  \"startDate\": \"2026-09-10\",\n  \"endDate\": \"2026-09-30\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/bookings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "bookings"
+                  ]
+                }
               },
               "status": "Created",
               "code": 201,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": true,\n  \"message\": \"Booking created. The warehouse owner must approve it before payment.\",\n  \"data\": {\n    \"id\": \"c5940b37-b092-46de-9c3d-70112fa82487\",\n    \"lotCode\": \"AS-2026-A7K3QX\",\n    \"status\": \"PENDING_APPROVAL\",\n    \"quantityKg\": 2000,\n    \"startDate\": \"2026-09-10T00:00:00.000Z\",\n    \"endDate\": \"2026-09-30T00:00:00.000Z\",\n    \"bookedDays\": 21,\n    \"ratePerKgPerDay\": 0.05,\n    \"estimatedCost\": 2100,\n    \"finalCost\": null,\n    \"holdExpiresAt\": null,\n    \"cropType\": { \"id\": \"bfd56672-aecb-4541-8b8a-002298194db0\", \"name\": \"Potato\" },\n    \"chamber\": { \"id\": \"e867b9ec-ccb2-4b85-8b90-4398a83b3f5e\", \"name\": \"C-1\", \"minTempC\": 1, \"maxTempC\": 5 },\n    \"warehouse\": { \"id\": \"37ebb4e5-822f-4b98-a6ba-ba6807478bf8\", \"name\": \"Rangpur Cold Store\", \"district\": \"Rangpur\" },\n    \"farmer\": { \"id\": \"9dd52350-a2b4-4b78-b5ba-a89943849847\", \"name\": \"Rahim Uddin\", \"phone\": \"01712345678\" }\n  }\n}"
             },
             {
               "name": "409 — not enough capacity",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"chamberId\": \"{{chamberId}}\",\n  \"cropTypeId\": \"{{cropTypeId}}\",\n  \"quantityKg\": 99999,\n  \"startDate\": \"2026-09-10\",\n  \"endDate\": \"2026-09-30\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/bookings", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"chamberId\": \"{{chamberId}}\",\n  \"cropTypeId\": \"{{cropTypeId}}\",\n  \"quantityKg\": 99999,\n  \"startDate\": \"2026-09-10\",\n  \"endDate\": \"2026-09-30\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/bookings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "bookings"
+                  ]
+                }
               },
               "status": "Conflict",
               "code": 409,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Only 6500kg is available in chamber C-1 between 2026-09-10 and 2026-09-30\",\n  \"errors\": []\n}"
             },
             {
               "name": "422 — crop does not fit the chamber",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"chamberId\": \"{{chamberId}}\",\n  \"cropTypeId\": \"banana-uuid\",\n  \"quantityKg\": 100,\n  \"startDate\": \"2026-09-10\",\n  \"endDate\": \"2026-09-30\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/bookings", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"chamberId\": \"{{chamberId}}\",\n  \"cropTypeId\": \"banana-uuid\",\n  \"quantityKg\": 100,\n  \"startDate\": \"2026-09-10\",\n  \"endDate\": \"2026-09-30\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/bookings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "bookings"
+                  ]
+                }
               },
               "status": "Unprocessable Entity",
               "code": 422,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Banana needs 13 to 15C, but chamber C-1 runs 1 to 5C\",\n  \"errors\": []\n}"
             }
           ]
@@ -1074,14 +2369,41 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/bookings/me?page=1&limit=10",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "bookings", "me"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "me"
+              ],
               "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "10" },
-                { "key": "status", "value": "PAID", "description": "Filter by booking status.", "disabled": true },
-                { "key": "sortBy", "value": "createdAt", "description": "createdAt | startDate | endDate | quantityKg", "disabled": true },
-                { "key": "sortOrder", "value": "desc", "disabled": true }
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "status",
+                  "value": "PAID",
+                  "description": "Filter by booking status.",
+                  "disabled": true
+                },
+                {
+                  "key": "sortBy",
+                  "value": "createdAt",
+                  "description": "createdAt | startDate | endDate | quantityKg",
+                  "disabled": true
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc",
+                  "disabled": true
+                }
               ]
             },
             "description": "FARMER only. Returns the caller's own bookings."
@@ -1093,7 +2415,18 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings", "{{bookingId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "{{bookingId}}"
+              ]
+            },
             "description": "Visible to the farmer who owns it, the owner of the warehouse holding it, or an admin. Anyone else gets `403`."
           },
           "response": []
@@ -1103,7 +2436,19 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/invoice", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings", "{{bookingId}}", "invoice"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/invoice",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "{{bookingId}}",
+                "invoice"
+              ]
+            },
             "description": "Full cost breakdown: quantity, rate, booked days, the minimum-booking floor, actual days stored, the settlement (base cost, overstay days, surcharge), the payment record, and the outstanding balance.\n\nOnce a booking is `COMPLETED`, the `finalCost` recorded at completion is authoritative — the invoice does not silently recompute it."
           },
           "response": []
@@ -1112,9 +2457,34 @@
           "name": "Approve Booking (owner)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
-            "url": { "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/approve", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings", "{{bookingId}}", "approve"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "{{bookingId}}",
+                "approve"
+              ]
+            },
             "description": "WAREHOUSE_OWNER only, own warehouse only.\n\nSets a **30-minute payment hold** (`holdExpiresAt`). An unpaid hold that lapses stops counting against chamber capacity and the booking becomes `EXPIRED` — handled lazily at read time, so no cron job is needed."
           },
           "response": [
@@ -1122,14 +2492,39 @@
               "name": "409 — illegal transition",
               "originalRequest": {
                 "method": "PATCH",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/approve", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings", "{{bookingId}}", "approve"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/approve",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "bookings",
+                    "{{bookingId}}",
+                    "approve"
+                  ]
+                }
               },
               "status": "Conflict",
               "code": 409,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Cannot move this booking from APPROVED to APPROVED - from APPROVED you can only move to PAID, EXPIRED, CANCELLED\",\n  \"errors\": []\n}"
             }
           ]
@@ -1138,13 +2533,34 @@
           "name": "Reject Booking (owner)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"reason\": \"No space for this crop in the requested window\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/reject", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings", "{{bookingId}}", "reject"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "{{bookingId}}",
+                "reject"
+              ]
+            },
             "description": "WAREHOUSE_OWNER only. `reason` is optional and stored on the booking."
           },
           "response": []
@@ -1153,13 +2569,34 @@
           "name": "Cancel Booking (farmer)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"reason\": \"Changed my harvest plan\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/cancel", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings", "{{bookingId}}", "cancel"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "{{bookingId}}",
+                "cancel"
+              ]
+            },
             "description": "FARMER only, own booking only. Allowed while `PENDING_APPROVAL`, `APPROVED` or `PAID`. A cancelled `PAID` booking needs an admin refund."
           },
           "response": []
@@ -1168,9 +2605,34 @@
           "name": "Store Lot (owner)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
-            "url": { "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/store", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings", "{{bookingId}}", "store"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/store",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "{{bookingId}}",
+                "store"
+              ]
+            },
             "description": "WAREHOUSE_OWNER only. Requires the booking to be `PAID`.\n\nRefused with `409` if the intake inspection graded the lot `REJECTED` — a failed lot cannot be stored, it must be refunded."
           },
           "response": []
@@ -1179,9 +2641,34 @@
           "name": "Request Withdrawal (farmer)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
-            "url": { "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/withdraw-request", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings", "{{bookingId}}", "withdraw-request"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/withdraw-request",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "{{bookingId}}",
+                "withdraw-request"
+              ]
+            },
             "description": "FARMER only, own lot only. Moves `STORED` → `WITHDRAW_REQUESTED`."
           },
           "response": []
@@ -1190,9 +2677,34 @@
           "name": "Complete Booking (owner)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
-            "url": { "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/complete", "host": ["{{baseUrl}}"], "path": ["api", "v1", "bookings", "{{bookingId}}", "complete"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/complete",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "{{bookingId}}",
+                "complete"
+              ]
+            },
             "description": "WAREHOUSE_OWNER only. Confirms release and **computes the final cost**:\n\n```\nbillableDays = max(actualDaysStored, minBookingDays)\nbaseCost     = quantityKg × rate × billableDays\noverstayDays = max(0, actualDays − bookedDays)\nsurcharge    = quantityKg × rate × overstayDays × 0.5\nfinalCost    = baseCost + surcharge\n```\n\nSo an early withdrawal still pays the minimum-days floor, and an overstay pays 1.5× on the extra days."
           },
           "response": []
@@ -1221,13 +2733,35 @@
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"grade\": \"A\",\n  \"actualQtyKg\": 1980,\n  \"moisturePct\": 12.4,\n  \"notes\": \"Good condition, no visible rot\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/admin/bookings/{{bookingId}}/inspection", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "bookings", "{{bookingId}}", "inspection"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/bookings/{{bookingId}}/inspection",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "bookings",
+                "{{bookingId}}",
+                "inspection"
+              ]
+            },
             "description": "ADMIN only. The booking must be `PAID` — inspection happens at intake, before storage.\n\n`grade` is `A`, `B`, `C` or `REJECTED`. One inspection per booking.\n\n**`REJECTED` auto-cancels the booking** with reason \"Failed intake quality inspection\", and `store` will then refuse the lot."
           },
           "response": [
@@ -1235,14 +2769,40 @@
               "name": "201 — grade REJECTED cancels the booking",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"grade\": \"REJECTED\",\n  \"actualQtyKg\": 1800,\n  \"notes\": \"Rot detected in 3 sacks\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/admin/bookings/{{bookingId}}/inspection", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "bookings", "{{bookingId}}", "inspection"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"grade\": \"REJECTED\",\n  \"actualQtyKg\": 1800,\n  \"notes\": \"Rot detected in 3 sacks\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/bookings/{{bookingId}}/inspection",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "bookings",
+                    "{{bookingId}}",
+                    "inspection"
+                  ]
+                }
               },
               "status": "Created",
               "code": 201,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": true,\n  \"message\": \"Inspection recorded. The lot failed and the booking has been cancelled for refund.\",\n  \"data\": {\n    \"id\": \"a0c04726-38dd-4278-afbe-5b5d545104ac\",\n    \"grade\": \"REJECTED\",\n    \"moisturePct\": null,\n    \"actualQtyKg\": 1800,\n    \"notes\": \"Rot detected in 3 sacks\",\n    \"inspectedAt\": \"2026-09-04T12:00:00.000Z\",\n    \"inspector\": { \"id\": \"...\", \"name\": \"Root Admin\" },\n    \"booking\": {\n      \"id\": \"c5940b37-b092-46de-9c3d-70112fa82487\",\n      \"lotCode\": \"AS-2026-A7K3QX\",\n      \"status\": \"CANCELLED\",\n      \"quantityKg\": 2000,\n      \"farmer\": { \"id\": \"...\", \"name\": \"Rahim Uddin\" },\n      \"warehouse\": { \"id\": \"...\", \"name\": \"Rangpur Cold Store\" }\n    }\n  }\n}"
             }
           ]
@@ -1254,13 +2814,34 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/inspections?page=1&limit=10",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "inspections"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inspections"
+              ],
               "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "10" },
-                { "key": "grade", "value": "REJECTED", "description": "A | B | C | REJECTED", "disabled": true },
-                { "key": "bookingId", "value": "{{bookingId}}", "disabled": true }
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "grade",
+                  "value": "REJECTED",
+                  "description": "A | B | C | REJECTED",
+                  "disabled": true
+                },
+                {
+                  "key": "bookingId",
+                  "value": "{{bookingId}}",
+                  "disabled": true
+                }
               ]
             },
             "description": "ADMIN only."
@@ -1272,7 +2853,18 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/inspections/{{inspectionId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "inspections", "{{inspectionId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/inspections/{{inspectionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inspections",
+                "{{inspectionId}}"
+              ]
+            },
             "description": "Visible to the admin, the farmer whose lot it is, and the warehouse owner holding it — the involved parties. Anyone else gets `403`."
           },
           "response": []
@@ -1302,13 +2894,33 @@
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"bookingId\": \"{{bookingId}}\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/payments/checkout-session", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "checkout-session"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/payments/checkout-session",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "checkout-session"
+              ]
+            },
             "description": "FARMER only, own booking only. The booking must be `APPROVED` and its hold must not have expired.\n\nOpen the returned `checkoutUrl` in a browser and pay with the Stripe test card **4242 4242 4242 4242**, any future expiry, any CVC."
           },
           "response": [
@@ -1316,28 +2928,76 @@
               "name": "201 Created",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"bookingId\": \"{{bookingId}}\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/payments/checkout-session", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "checkout-session"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"bookingId\": \"{{bookingId}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/payments/checkout-session",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "payments",
+                    "checkout-session"
+                  ]
+                }
               },
               "status": "Created",
               "code": 201,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": true,\n  \"message\": \"Checkout session created. Open checkoutUrl to pay.\",\n  \"data\": {\n    \"paymentId\": \"7f1c2a90-1234-4a5b-9c8d-0e1f2a3b4c5d\",\n    \"sessionId\": \"cs_test_a19fKfPuFp0h8GU3uHuWSz1uW6tyTljAZovZjNPxZGS24vE8I6MhZSS6Ya\",\n    \"checkoutUrl\": \"https://checkout.stripe.com/c/pay/cs_test_a19fKfPuFp...\",\n    \"amountBdt\": 2000,\n    \"amountUsd\": 17,\n    \"fxRate\": 0.0085,\n    \"expiresAt\": \"2026-09-05T10:22:33.000Z\"\n  }\n}"
             },
             {
               "name": "409 — booking not APPROVED",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"bookingId\": \"{{bookingId}}\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/payments/checkout-session", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "checkout-session"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"bookingId\": \"{{bookingId}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/payments/checkout-session",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "payments",
+                    "checkout-session"
+                  ]
+                }
               },
               "status": "Conflict",
               "code": 409,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Only an APPROVED booking can be paid for. This one is PENDING_APPROVAL.\",\n  \"errors\": []\n}"
             }
           ]
@@ -1345,18 +3005,42 @@
         {
           "name": "Stripe Webhook (called by Stripe)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "stripe-signature", "value": "t=...,v1=...", "description": "Generated by Stripe. A forged or missing signature returns 400." }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "stripe-signature",
+                "value": "t=...,v1=...",
+                "description": "Generated by Stripe. A forged or missing signature returns 400."
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"type\": \"checkout.session.completed\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/payments/webhook", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "webhook"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/payments/webhook",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "webhook"
+              ]
+            },
             "description": "**Not called by hand** — Stripe calls it. Listed here for documentation.\n\nRegistered with `express.raw()` **before** `express.json()`, because signature verification needs the untouched request body.\n\nHandles `checkout.session.completed` (→ Payment `SUCCEEDED`, Booking `PAID`), `checkout.session.expired` and `payment_intent.payment_failed`.\n\n**Idempotent** — Stripe retries deliveries. The update is `WHERE status = 'PENDING'`, so a duplicate matches zero rows and writes nothing.\n\nLocal testing:\n```\nstripe listen --forward-to localhost:8000/api/v1/payments/webhook\n```"
           },
           "response": []
@@ -1364,14 +3048,28 @@
         {
           "name": "Payment Success (redirect target)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/payments/success?session_id=cs_test_xxx",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "payments", "success"],
-              "query": [{ "key": "session_id", "value": "cs_test_xxx" }]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "success"
+              ],
+              "query": [
+                {
+                  "key": "session_id",
+                  "value": "cs_test_xxx"
+                }
+              ]
             },
             "description": "Where Stripe redirects after payment. **Read-only** — it reports status and never mutates anything.\n\nIf the webhook has not landed yet it says so and asks you to refresh, rather than pretending the booking is paid."
           },
@@ -1380,10 +3078,23 @@
         {
           "name": "Payment Cancel (redirect target)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/payments/cancel", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "cancel"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/payments/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "cancel"
+              ]
+            },
             "description": "Where Stripe redirects if the farmer abandons checkout. The booking stays held until its hold expires."
           },
           "response": []
@@ -1395,12 +3106,30 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/payments/me?page=1&limit=10",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "payments", "me"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "me"
+              ],
               "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "10" },
-                { "key": "status", "value": "SUCCEEDED", "description": "PENDING | SUCCEEDED | FAILED | REFUNDED", "disabled": true }
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "status",
+                  "value": "SUCCEEDED",
+                  "description": "PENDING | SUCCEEDED | FAILED | REFUNDED",
+                  "disabled": true
+                }
               ]
             },
             "description": "FARMER only."
@@ -1412,7 +3141,18 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/payments/{{paymentId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "{{paymentId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/payments/{{paymentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "{{paymentId}}"
+              ]
+            },
             "description": "The farmer who made it, or an admin. Anyone else gets `403`."
           },
           "response": []
@@ -1421,13 +3161,34 @@
           "name": "Refund Payment (admin)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"reason\": \"Lot failed intake inspection\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/payments/{{paymentId}}/refund", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "{{paymentId}}", "refund"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/payments/{{paymentId}}/refund",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "{{paymentId}}",
+                "refund"
+              ]
+            },
             "description": "ADMIN only. Calls the Stripe Refund API, then marks the payment `REFUNDED` and writes an audit row.\n\nOnly a `SUCCEEDED` payment can be refunded; a second attempt returns `409`."
           },
           "response": []
@@ -1441,17 +3202,37 @@
         {
           "name": "Warehouse Reviews (public)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/warehouses/{{warehouseId}}/reviews?page=1&limit=10",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "warehouses", "{{warehouseId}}", "reviews"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses",
+                "{{warehouseId}}",
+                "reviews"
+              ],
               "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "10" },
-                { "key": "sortOrder", "value": "desc", "disabled": true }
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc",
+                  "disabled": true
+                }
               ]
             },
             "description": "Public, paginated."
@@ -1476,13 +3257,32 @@
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"bookingId\": \"{{bookingId}}\",\n  \"rating\": 5,\n  \"comment\": \"Excellent storage, no spoilage at all\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/reviews", "host": ["{{baseUrl}}"], "path": ["api", "v1", "reviews"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reviews",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reviews"
+              ]
+            },
             "description": "FARMER only, own booking only, and the booking must be `COMPLETED` — otherwise `409`.\n\n`rating` is 1 to 5. One review per booking."
           },
           "response": [
@@ -1490,14 +3290,37 @@
               "name": "409 — booking not completed",
               "originalRequest": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"bookingId\": \"{{bookingId}}\",\n  \"rating\": 5\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/reviews", "host": ["{{baseUrl}}"], "path": ["api", "v1", "reviews"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"bookingId\": \"{{bookingId}}\",\n  \"rating\": 5\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/reviews",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "reviews"
+                  ]
+                }
               },
               "status": "Conflict",
               "code": 409,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"You can only review a COMPLETED booking. This one is PENDING_APPROVAL.\",\n  \"errors\": []\n}"
             }
           ]
@@ -1506,13 +3329,33 @@
           "name": "Update Review (farmer)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"rating\": 4,\n  \"comment\": \"Good, but the release paperwork was slow\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/reviews/{{reviewId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "reviews", "{{reviewId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reviews/{{reviewId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reviews",
+                "{{reviewId}}"
+              ]
+            },
             "description": "FARMER only, own review only. Recomputes the warehouse rating."
           },
           "response": []
@@ -1522,7 +3365,18 @@
           "request": {
             "method": "DELETE",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/reviews/{{reviewId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "reviews", "{{reviewId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reviews/{{reviewId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reviews",
+                "{{reviewId}}"
+              ]
+            },
             "description": "The farmer who wrote it, or an admin moderating. **Soft delete**, and the warehouse rating is recomputed."
           },
           "response": []
@@ -1540,17 +3394,60 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/admin/users?page=1&limit=10",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "admin", "users"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users"
+              ],
               "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "10" },
-                { "key": "search", "value": "rahim", "description": "Matches name or email.", "disabled": true },
-                { "key": "role", "value": "FARMER", "description": "FARMER | WAREHOUSE_OWNER | ADMIN", "disabled": true },
-                { "key": "status", "value": "ACTIVE", "description": "ACTIVE | BANNED", "disabled": true },
-                { "key": "verified", "value": "false", "description": "Email verification state.", "disabled": true },
-                { "key": "includeDeleted", "value": "true", "description": "Include soft-deleted accounts.", "disabled": true },
-                { "key": "sortBy", "value": "createdAt", "description": "createdAt | name | email | role", "disabled": true }
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "search",
+                  "value": "rahim",
+                  "description": "Matches name or email.",
+                  "disabled": true
+                },
+                {
+                  "key": "role",
+                  "value": "FARMER",
+                  "description": "FARMER | WAREHOUSE_OWNER | ADMIN",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE",
+                  "description": "ACTIVE | BANNED",
+                  "disabled": true
+                },
+                {
+                  "key": "verified",
+                  "value": "false",
+                  "description": "Email verification state.",
+                  "disabled": true
+                },
+                {
+                  "key": "includeDeleted",
+                  "value": "true",
+                  "description": "Include soft-deleted accounts.",
+                  "disabled": true
+                },
+                {
+                  "key": "sortBy",
+                  "value": "createdAt",
+                  "description": "createdAt | name | email | role",
+                  "disabled": true
+                }
               ]
             },
             "description": "ADMIN only. Soft-deleted accounts are hidden unless `includeDeleted=true`."
@@ -1562,7 +3459,19 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/admin/users/{{userId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "users", "{{userId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/users/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users",
+                "{{userId}}"
+              ]
+            },
             "description": "ADMIN only. Full record including both profile types and related counts."
           },
           "response": []
@@ -1571,13 +3480,35 @@
           "name": "Ban / Unban User",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"BANNED\",\n  \"reason\": \"Repeated fraudulent bookings\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/admin/users/{{userId}}/status", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "users", "{{userId}}", "status"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/users/{{userId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users",
+                "{{userId}}",
+                "status"
+              ]
+            },
             "description": "ADMIN only. `status` is `ACTIVE` or `BANNED`.\n\nBanning takes effect **immediately** — the account cannot log in and cannot refresh an existing token, because the auth middleware re-reads the user from the database on every request.\n\nReturns `403` if the target is your own account or another admin."
           },
           "response": []
@@ -1586,13 +3517,35 @@
           "name": "Change User Role",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"role\": \"WAREHOUSE_OWNER\",\n  \"reason\": \"Verified cold storage operator\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/admin/users/{{userId}}/role", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "users", "{{userId}}", "role"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/users/{{userId}}/role",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users",
+                "{{userId}}",
+                "role"
+              ]
+            },
             "description": "ADMIN only. **This is the only way to create an ADMIN** — signup refuses that role outright.\n\nBlocked with `409` if the change would orphan data: an owner who still owns warehouses, or a farmer with active bookings."
           },
           "response": [
@@ -1600,14 +3553,40 @@
               "name": "409 — would orphan warehouses",
               "originalRequest": {
                 "method": "PATCH",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\n  \"role\": \"FARMER\"\n}" },
-                "url": { "raw": "{{baseUrl}}/api/v1/admin/users/{{userId}}/role", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "users", "{{userId}}", "role"] }
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"role\": \"FARMER\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/users/{{userId}}/role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "users",
+                    "{{userId}}",
+                    "role"
+                  ]
+                }
               },
               "status": "Conflict",
               "code": 409,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Cannot change this role while the account still owns 1 warehouse(s)\",\n  \"errors\": []\n}"
             }
           ]
@@ -1616,13 +3595,35 @@
           "name": "Approve / Suspend Warehouse",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"APPROVED\",\n  \"reason\": \"Trade licence and cold-chain certificate verified\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/admin/warehouses/{{warehouseId}}/status", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "warehouses", "{{warehouseId}}", "status"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/warehouses/{{warehouseId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "warehouses",
+                "{{warehouseId}}",
+                "status"
+              ]
+            },
             "description": "ADMIN only. `PENDING` | `APPROVED` | `REJECTED` | `SUSPENDED`.\n\nA warehouse must be `APPROVED` before it appears in public search or accepts bookings."
           },
           "response": []
@@ -1634,12 +3635,29 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/admin/bookings?page=1&limit=10",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "admin", "bookings"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "bookings"
+              ],
               "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "10" },
-                { "key": "status", "value": "PAID", "disabled": true }
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "status",
+                  "value": "PAID",
+                  "disabled": true
+                }
               ]
             },
             "description": "ADMIN only. Platform-wide booking list."
@@ -1653,14 +3671,41 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/admin/audit-logs?page=1&limit=20",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "admin", "audit-logs"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "audit-logs"
+              ],
               "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "20" },
-                { "key": "entityType", "value": "Booking", "description": "User | Warehouse | Booking | Payment | Review", "disabled": true },
-                { "key": "entityId", "value": "{{bookingId}}", "disabled": true },
-                { "key": "action", "value": "BANNED", "description": "Partial match, case-insensitive.", "disabled": true }
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "entityType",
+                  "value": "Booking",
+                  "description": "User | Warehouse | Booking | Payment | Review",
+                  "disabled": true
+                },
+                {
+                  "key": "entityId",
+                  "value": "{{bookingId}}",
+                  "disabled": true
+                },
+                {
+                  "key": "action",
+                  "value": "BANNED",
+                  "description": "Partial match, case-insensitive.",
+                  "disabled": true
+                }
               ]
             },
             "description": "ADMIN only. Every row carries before/after snapshots, the acting admin, and the IP."
@@ -1671,12 +3716,28 @@
               "originalRequest": {
                 "method": "GET",
                 "header": [],
-                "url": { "raw": "{{baseUrl}}/api/v1/admin/audit-logs", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "audit-logs"] }
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/audit-logs",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "audit-logs"
+                  ]
+                }
               },
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": true,\n  \"message\": \"Audit logs retrieved successfully\",\n  \"data\": [\n    {\n      \"id\": \"...\",\n      \"action\": \"USER_BANNED\",\n      \"entityType\": \"User\",\n      \"entityId\": \"...\",\n      \"before\": { \"status\": \"ACTIVE\" },\n      \"after\": { \"status\": \"BANNED\", \"reason\": \"Repeated fraudulent bookings\" },\n      \"ip\": \"::1\",\n      \"createdAt\": \"2026-09-04T12:00:00.000Z\",\n      \"actor\": { \"id\": \"...\", \"name\": \"Root Admin\", \"role\": \"ADMIN\" }\n    }\n  ],\n  \"meta\": { \"page\": 1, \"limit\": 20, \"total\": 4, \"totalPages\": 1 }\n}"
             }
           ]
@@ -1686,7 +3747,18 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/admin/stats", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "stats"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "stats"
+              ]
+            },
             "description": "ADMIN only. Users by role and status, warehouses by status, chamber capacity, bookings by status, revenue, and the top districts by warehouse count."
           },
           "response": [
@@ -1695,12 +3767,28 @@
               "originalRequest": {
                 "method": "GET",
                 "header": [],
-                "url": { "raw": "{{baseUrl}}/api/v1/admin/stats", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "stats"] }
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/stats",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "stats"
+                  ]
+                }
               },
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": true,\n  \"message\": \"Platform statistics retrieved successfully\",\n  \"data\": {\n    \"users\": {\n      \"total\": 33,\n      \"active\": 32,\n      \"banned\": 1,\n      \"deleted\": 1,\n      \"unverified\": 6,\n      \"byRole\": { \"FARMER\": 14, \"WAREHOUSE_OWNER\": 14, \"ADMIN\": 5 }\n    },\n    \"warehouses\": { \"total\": 6, \"byStatus\": { \"APPROVED\": 6 } },\n    \"chambers\": { \"total\": 5, \"totalCapacityKg\": 38200 },\n    \"bookings\": { \"total\": 12, \"byStatus\": { \"COMPLETED\": 3, \"PAID\": 2 } },\n    \"payments\": { \"succeeded\": 5, \"revenueBdt\": 12500 },\n    \"topDistricts\": [ { \"district\": \"Rangpur\", \"warehouses\": 3 } ]\n  }\n}"
             }
           ]
@@ -1714,10 +3802,22 @@
         {
           "name": "404 — unknown route",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/nope", "host": ["{{baseUrl}}"], "path": ["api", "v1", "nope"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/nope",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nope"
+              ]
+            },
             "description": "Unmatched paths fall through to a 404 handler registered just before the global error handler."
           },
           "response": [
@@ -1726,12 +3826,27 @@
               "originalRequest": {
                 "method": "GET",
                 "header": [],
-                "url": { "raw": "{{baseUrl}}/api/v1/nope", "host": ["{{baseUrl}}"], "path": ["api", "v1", "nope"] }
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/nope",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "nope"
+                  ]
+                }
               },
               "status": "Not Found",
               "code": 404,
               "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
               "body": "{\n  \"success\": false,\n  \"message\": \"Route not found: GET /api/v1/nope\",\n  \"errors\": []\n}"
             }
           ]
@@ -1739,10 +3854,23 @@
         {
           "name": "400 — malformed uuid",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/warehouses/not-a-uuid", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouses", "not-a-uuid"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/warehouses/not-a-uuid",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses",
+                "not-a-uuid"
+              ]
+            },
             "description": "Path parameters are validated, so a malformed id never reaches the database."
           },
           "response": []
@@ -1750,10 +3878,23 @@
         {
           "name": "404 — valid uuid, no such record",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/warehouses/00000000-0000-4000-8000-000000000000", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouses", "00000000-0000-4000-8000-000000000000"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/warehouses/00000000-0000-4000-8000-000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses",
+                "00000000-0000-4000-8000-000000000000"
+              ]
+            },
             "description": "Distinguishes \"badly formed\" (400) from \"well formed but absent\" (404)."
           },
           "response": []
@@ -1761,10 +3902,28 @@
         {
           "name": "401 — invalid token",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer garbage.token.here" }],
-            "url": { "raw": "{{baseUrl}}/api/v1/users/me", "host": ["{{baseUrl}}"], "path": ["api", "v1", "users", "me"] },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer garbage.token.here"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me"
+              ]
+            },
             "description": "A malformed, expired or revoked token all return 401 with a message explaining which."
           },
           "response": []
