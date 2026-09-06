@@ -180,9 +180,8 @@ const createCheckoutSessionDb = async (
     paymentId: payment.id,
     sessionId: session.id,
     checkoutUrl: session.url,
-    amountBdt,
-    amountUsd: usdCents / 100,
-    fxRate: env.DEMO_FX_RATE,
+    amount: usdCents / 100,
+    currency: "usd",
     expiresAt: session.expires_at === null ? null : new Date(session.expires_at * 1000),
   };
 };

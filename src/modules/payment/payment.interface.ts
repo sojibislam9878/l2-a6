@@ -33,8 +33,7 @@ export type ICheckoutSession = {
   paymentId: string;
   sessionId: string;
   checkoutUrl: string;
-  amountBdt: number;
-  amountUsd: number;
-  fxRate: number;
+  amount: number;
+  currency: string;
   expiresAt: Date | null;
 };
