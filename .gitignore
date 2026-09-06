@@ -14,6 +14,7 @@ postman
 .claude
 .windsurf
 .agents
+CLAUDE.md
 generated/
 
 .vercel/
