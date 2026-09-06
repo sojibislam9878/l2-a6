@@ -15,6 +15,7 @@ const router = Router();
 
 router.get("/success", paymentController.paymentSuccess);
 router.get("/cancel", paymentController.paymentCancel);
+router.get("/failed", paymentController.paymentFailed);
 
 router.post(
   "/checkout-session",

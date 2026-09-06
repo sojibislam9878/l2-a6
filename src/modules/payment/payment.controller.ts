@@ -1,9 +1,12 @@
+import type { Request, Response } from "express";
 import { validatedQuery } from "../../middlewares/validateRequest.js";
 import { AppError } from "../../utils/AppError.js";
 import { catchAsync } from "../../utils/catchAsync.js";
+import { type PaymentOutcome, renderPaymentPage } from "../../utils/paymentPage.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 import type {
   ICreateCheckoutSessionPayload,
+  IPayment,
   IPaymentFilters,
   IRefundPaymentPayload,
 } from "./payment.interface.js";
@@ -32,6 +35,54 @@ const handleWebhook = catchAsync(async (req, res) => {
   res.status(200).json({ received: true, type: event.type, outcome });
 });
 
+const OUTCOME_BY_STATUS: Record<string, PaymentOutcome> = {
+  SUCCEEDED: "success",
+  PENDING: "processing",
+  FAILED: "failed",
+  REFUNDED: "refunded",
+};
+
+const OUTCOME_MESSAGE: Record<PaymentOutcome, string> = {
+  success: "Payment confirmed. Your storage lot is booked.",
+  processing: "Payment received by Stripe. Waiting for confirmation, refresh in a moment.",
+  failed: "Payment failed. Your booking is unchanged, you can try again.",
+  cancelled: "Payment cancelled. The booking is still held until its payment window expires.",
+  refunded: "This payment has been refunded.",
+};
+
+const respond = (
+  req: Request,
+  res: Response,
+  outcome: PaymentOutcome,
+  data: IPayment | null,
+): void => {
+  const message = OUTCOME_MESSAGE[outcome];
+  const format = typeof req.query.format === "string" ? req.query.format : "";
+  const acceptsHtml = (req.headers.accept ?? "").includes("text/html");
+  const wantsHtml = format === "html" || (format !== "json" && acceptsHtml);
+
+  if (!wantsHtml) {
+    sendResponse(res, {
+      statusCode: 200,
+      message,
+      ...(data === null ? {} : { data }),
+    });
+    return;
+  }
+
+  const details =
+    data === null
+      ? []
+      : [
+          { label: "Lot", value: data.lotCode },
+          { label: "Amount", value: `${data.amountBdt} BDT` },
+          { label: "Charged", value: `${data.amount} ${data.currency.toUpperCase()}` },
+          { label: "Status", value: data.status },
+        ];
+
+  res.status(200).type("html").send(renderPaymentPage(outcome, details));
+};
+
 const paymentSuccess = catchAsync(async (req, res) => {
   const sessionId = req.query.session_id;
 
@@ -40,20 +91,35 @@ const paymentSuccess = catchAsync(async (req, res) => {
   }
 
   const data = await paymentService.getPaymentStatusBySessionId(sessionId);
+  const outcome = OUTCOME_BY_STATUS[data.status] ?? "processing";
 
-  const message =
-    data.status === "SUCCEEDED"
-      ? "Payment confirmed. Your lot is booked."
-      : "Payment received by Stripe. Waiting for confirmation, refresh in a moment.";
-
-  sendResponse(res, { statusCode: 200, message, data });
+  respond(req, res, outcome, data);
 });
 
-const paymentCancel = catchAsync(async (_req, res) => {
-  sendResponse(res, {
-    statusCode: 200,
-    message: "Payment cancelled. The booking is still held until the hold expires.",
-  });
+const paymentFailed = catchAsync(async (req, res) => {
+  const sessionId = req.query.session_id;
+
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    respond(req, res, "failed", null);
+    return;
+  }
+
+  const data = await paymentService.getPaymentStatusBySessionId(sessionId);
+
+  respond(req, res, "failed", data);
+});
+
+const paymentCancel = catchAsync(async (req, res) => {
+  const sessionId = req.query.session_id;
+
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    respond(req, res, "cancelled", null);
+    return;
+  }
+
+  const data = await paymentService.getPaymentStatusBySessionId(sessionId);
+
+  respond(req, res, "cancelled", data);
 });
 
 const getMyPayments = catchAsync(async (req, res) => {
@@ -93,6 +159,7 @@ export const paymentController = {
   handleWebhook,
   paymentSuccess,
   paymentCancel,
+  paymentFailed,
   getMyPayments,
   getPaymentById,
   refundPayment,
