@@ -163,8 +163,8 @@ const createCheckoutSessionDb = async (
       },
     ],
     metadata: { bookingId, paymentId: payment.id },
-    success_url: `${env.APP_URL}/api/v1/payments/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${env.APP_URL}/api/v1/payments/cancel?session_id={CHECKOUT_SESSION_ID}`,
+    success_url: `${env.FRONTEND_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${env.FRONTEND_URL}/payment/failed?session_id={CHECKOUT_SESSION_ID}`,
   });
 
   if (session.url === null) {

@@ -291,8 +291,9 @@ Base path: **`/api/v1`** · 73 endpoints · full request/response examples in th
              → express.raw() BEFORE express.json(), signature verified
              → Payment SUCCEEDED, Booking PAID, AuditLog row — all in one transaction
 
-4. Stripe redirects the browser to /payments/success (or /cancel, /failed)
-             → renders an HTML result page, JSON for API clients
+4. Stripe redirects the browser to FRONTEND_URL/payment/success (or /payment/failed on cancel)
+             → the frontend polls GET /payments/success?session_id=…&format=json until the webhook lands
+             → /payments/success, /cancel, /failed still render HTML or JSON for API clients
              → READ-ONLY, it never mutates anything
 ```
 
