@@ -90,6 +90,22 @@ const buildChamberFilter = async (
   return applied ? chamberWhere : undefined;
 };
 
+// Unrated warehouses (avgRating NULL) go last in both directions; Postgres
+// would otherwise put them first for DESC. `id` breaks ties so skip/take
+// pages stay stable when many rows share a sort value.
+const toWarehouseOrderBy = (
+  orderBy: Record<string, "asc" | "desc">,
+): Prisma.WarehouseOrderByWithRelationInput[] => {
+  const [field = "createdAt"] = Object.keys(orderBy);
+  const direction = orderBy[field] ?? "desc";
+  const primary: Prisma.WarehouseOrderByWithRelationInput =
+    field === "avgRating"
+      ? { avgRating: { sort: direction, nulls: "last" } }
+      : { [field]: direction };
+
+  return [primary, { id: "asc" }];
+};
+
 const getWarehousesFromDb = async (
   filters: IWarehouseFilters,
 ): Promise<{ data: IWarehouseSummary[]; meta: PaginationMeta }> => {
@@ -129,7 +145,7 @@ const getWarehousesFromDb = async (
     prisma.warehouse.findMany({
       where,
       select: warehouseSelect,
-      orderBy: pagination.orderBy,
+      orderBy: toWarehouseOrderBy(pagination.orderBy),
       skip: pagination.skip,
       take: pagination.take,
     }),
@@ -158,7 +174,7 @@ const getMyWarehousesFromDb = async (
     prisma.warehouse.findMany({
       where,
       select: warehouseSelect,
-      orderBy: pagination.orderBy,
+      orderBy: toWarehouseOrderBy(pagination.orderBy),
       skip: pagination.skip,
       take: pagination.take,
     }),
