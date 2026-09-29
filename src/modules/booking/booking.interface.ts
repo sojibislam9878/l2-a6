@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { BookingStatus, Role } from "../../../generated/prisma/client.js";
+import type { BookingStatus, QualityGrade, Role } from "../../../generated/prisma/client.js";
 import type {
   bookingReasonSchema,
   createBookingSchema,
@@ -50,4 +50,11 @@ export type IBooking = {
   };
   farmer: { id: string; name: string; phone: string | null };
   review: { id: string; rating: number; comment: string | null; createdAt: Date } | null;
+  inspection: {
+    id: string;
+    grade: QualityGrade;
+    actualQtyKg: number;
+    moisturePct: number | null;
+    inspectedAt: Date;
+  } | null;
 };

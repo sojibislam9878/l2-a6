@@ -1834,59 +1834,371 @@ var inspectionIdSchema = z3.object({
   params: z3.object({ id: z3.uuid({ error: "id must be a valid uuid" }) })
 });
 
-// src/modules/admin/admin.validation.ts
+// src/modules/warehouse/warehouse.validation.ts
 import { z as z4 } from "zod";
-var USER_SORT_FIELDS = ["createdAt", "name", "email", "role"];
-var updateWarehouseStatusSchema = z4.object({
-  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) }),
-  body: z4.object({
-    status: z4.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"], {
-      error: "status must be PENDING, APPROVED, REJECTED or SUSPENDED"
-    }),
-    reason: z4.string().trim().min(3).max(255).optional()
-  }).strict()
-});
-var listUsersSchema = z4.object({
+var WAREHOUSE_SORT_FIELDS = ["createdAt", "name", "ratePerKgPerDay", "avgRating"];
+var name = z4.string({ error: "name is required" }).trim().min(3, { error: "name must be at least 3 characters" }).max(120, { error: "name must be at most 120 characters" });
+var district = z4.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
+var address = z4.string({ error: "address is required" }).trim().min(5, { error: "address must be at least 5 characters" }).max(255, { error: "address must be at most 255 characters" });
+var licenseNo = z4.string({ error: "licenseNo is required" }).trim().min(4, { error: "licenseNo must be at least 4 characters" }).max(40, { error: "licenseNo must be at most 40 characters" });
+var ratePerKgPerDay = z4.coerce.number({ error: "ratePerKgPerDay must be a number" }).positive({ error: "ratePerKgPerDay must be greater than zero" }).max(1e3, { error: "ratePerKgPerDay is unrealistically high" });
+var minBookingDays = z4.coerce.number({ error: "minBookingDays must be a number" }).int({ error: "minBookingDays must be a whole number" }).min(1, { error: "minBookingDays must be at least 1" }).max(365, { error: "minBookingDays cannot exceed 365" });
+var listWarehousesSchema = z4.object({
   query: z4.object({
     search: z4.string().trim().min(1).optional(),
-    role: z4.enum(["FARMER", "WAREHOUSE_OWNER", "ADMIN"]).optional(),
-    status: z4.enum(["ACTIVE", "BANNED"]).optional(),
-    verified: z4.enum(["true", "false"]).optional(),
-    includeDeleted: z4.enum(["true", "false"]).optional(),
-    sortBy: z4.enum(USER_SORT_FIELDS).optional(),
+    district: z4.string().trim().min(1).optional(),
+    cropTypeId: z4.uuid({ error: "cropTypeId must be a valid uuid" }).optional(),
+    minCapacityKg: z4.coerce.number().int().positive().optional(),
+    minRate: z4.coerce.number().nonnegative().optional(),
+    maxRate: z4.coerce.number().positive().optional(),
+    minRating: z4.coerce.number().min(1).max(5).optional(),
+    sortBy: z4.enum(WAREHOUSE_SORT_FIELDS).optional(),
     sortOrder: z4.enum(["asc", "desc"]).optional(),
     page: z4.coerce.number().int().positive().optional(),
     limit: z4.coerce.number().int().positive().max(100).optional()
+  }).strict().refine(
+    (query) => query.minRate === void 0 || query.maxRate === void 0 || query.maxRate >= query.minRate,
+    { error: "maxRate must be greater than or equal to minRate", path: ["maxRate"] }
+  )
+});
+var createWarehouseSchema = z4.object({
+  body: z4.object({
+    name,
+    district,
+    address,
+    licenseNo,
+    ratePerKgPerDay,
+    minBookingDays: minBookingDays.optional()
   }).strict()
 });
-var userIdSchema = z4.object({
+var updateWarehouseSchema = z4.object({
+  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) }),
+  body: z4.object({
+    name: name.optional(),
+    district: district.optional(),
+    address: address.optional(),
+    licenseNo: licenseNo.optional(),
+    ratePerKgPerDay: ratePerKgPerDay.optional(),
+    minBookingDays: minBookingDays.optional(),
+    status: z4.undefined({
+      error: "Warehouse status is set by an admin, not by the owner"
+    }).optional()
+  }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
+    error: "Provide at least one field to update"
+  })
+});
+var warehouseIdSchema = z4.object({
   params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) })
 });
-var updateUserStatusSchema = z4.object({
-  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) }),
-  body: z4.object({
-    status: z4.enum(["ACTIVE", "BANNED"], { error: "status must be ACTIVE or BANNED" }),
-    reason: z4.string().trim().min(3).max(255).optional()
-  }).strict()
-});
-var updateUserRoleSchema = z4.object({
-  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) }),
-  body: z4.object({
-    role: z4.enum(["FARMER", "WAREHOUSE_OWNER", "ADMIN"], {
-      error: "role must be FARMER, WAREHOUSE_OWNER or ADMIN"
-    }),
-    reason: z4.string().trim().min(3).max(255).optional()
-  }).strict()
-});
-var listAuditLogsSchema = z4.object({
+var listMyWarehousesSchema = z4.object({
   query: z4.object({
-    entityType: z4.string().trim().min(1).max(40).optional(),
-    entityId: z4.uuid({ error: "entityId must be a valid uuid" }).optional(),
-    actorId: z4.uuid({ error: "actorId must be a valid uuid" }).optional(),
-    action: z4.string().trim().min(1).max(60).optional(),
+    status: z4.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]).optional(),
+    sortBy: z4.enum(WAREHOUSE_SORT_FIELDS).optional(),
     sortOrder: z4.enum(["asc", "desc"]).optional(),
     page: z4.coerce.number().int().positive().optional(),
     limit: z4.coerce.number().int().positive().max(100).optional()
+  }).strict()
+});
+var warehouseReviewsSchema = z4.object({
+  params: z4.object({ warehouseId: z4.uuid({ error: "warehouseId must be a valid uuid" }) }),
+  query: z4.object({
+    page: z4.coerce.number().int().positive().optional(),
+    limit: z4.coerce.number().int().positive().max(100).optional(),
+    sortOrder: z4.enum(["asc", "desc"]).optional()
+  }).strict()
+});
+
+// src/modules/warehouse/warehouse.service.ts
+var warehouseSelect = {
+  id: true,
+  name: true,
+  district: true,
+  address: true,
+  licenseNo: true,
+  ratePerKgPerDay: true,
+  minBookingDays: true,
+  status: true,
+  avgRating: true,
+  reviewCount: true,
+  createdAt: true,
+  chambers: {
+    where: { deletedAt: null, isActive: true },
+    select: { capacityKg: true }
+  }
+};
+var toSummary = (row) => ({
+  id: row.id,
+  name: row.name,
+  district: row.district,
+  address: row.address,
+  ratePerKgPerDay: Number(row.ratePerKgPerDay),
+  minBookingDays: row.minBookingDays,
+  status: row.status,
+  avgRating: row.avgRating === null ? null : Number(row.avgRating),
+  reviewCount: row.reviewCount,
+  chamberCount: row.chambers.length,
+  totalCapacityKg: row.chambers.reduce((sum, chamber) => sum + chamber.capacityKg, 0),
+  createdAt: row.createdAt
+});
+var buildChamberFilter = async (filters) => {
+  const chamberWhere = { deletedAt: null, isActive: true };
+  let applied = false;
+  if (filters.minCapacityKg !== void 0) {
+    chamberWhere.capacityKg = { gte: filters.minCapacityKg };
+    applied = true;
+  }
+  if (filters.cropTypeId !== void 0) {
+    const crop = await prisma.cropType.findFirst({
+      where: { id: filters.cropTypeId, deletedAt: null },
+      select: { idealMinTempC: true, idealMaxTempC: true }
+    });
+    if (!crop) {
+      throw new AppError(404, "Crop type not found");
+    }
+    chamberWhere.minTempC = { lte: crop.idealMinTempC };
+    chamberWhere.maxTempC = { gte: crop.idealMaxTempC };
+    applied = true;
+  }
+  return applied ? chamberWhere : void 0;
+};
+var toWarehouseOrderBy = (orderBy) => {
+  const [field = "createdAt"] = Object.keys(orderBy);
+  const direction = orderBy[field] ?? "desc";
+  const primary = field === "avgRating" ? { avgRating: { sort: direction, nulls: "last" } } : { [field]: direction };
+  return [primary, { id: "asc" }];
+};
+var getWarehousesFromDb = async (filters) => {
+  const pagination = buildPagination(filters, WAREHOUSE_SORT_FIELDS, "createdAt");
+  const where = { deletedAt: null, status: "APPROVED" };
+  if (filters.district !== void 0) {
+    where.district = { equals: filters.district, mode: "insensitive" };
+  }
+  if (filters.search !== void 0) {
+    where.OR = [
+      { name: { contains: filters.search, mode: "insensitive" } },
+      { address: { contains: filters.search, mode: "insensitive" } }
+    ];
+  }
+  if (filters.minRate !== void 0 || filters.maxRate !== void 0) {
+    where.ratePerKgPerDay = {
+      ...filters.minRate === void 0 ? {} : { gte: filters.minRate },
+      ...filters.maxRate === void 0 ? {} : { lte: filters.maxRate }
+    };
+  }
+  if (filters.minRating !== void 0) {
+    where.avgRating = { gte: filters.minRating };
+  }
+  const chamberFilter = await buildChamberFilter(filters);
+  if (chamberFilter !== void 0) {
+    where.chambers = { some: chamberFilter };
+  }
+  const [rows, total] = await Promise.all([
+    prisma.warehouse.findMany({
+      where,
+      select: warehouseSelect,
+      orderBy: toWarehouseOrderBy(pagination.orderBy),
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.warehouse.count({ where })
+  ]);
+  return {
+    data: rows.map(toSummary),
+    meta: buildMeta(pagination.page, pagination.limit, total)
+  };
+};
+var getMyWarehousesFromDb = async (ownerId, filters) => {
+  const pagination = buildPagination(filters, WAREHOUSE_SORT_FIELDS, "createdAt");
+  const where = {
+    ownerId,
+    deletedAt: null,
+    ...filters.status === void 0 ? {} : { status: filters.status }
+  };
+  const [rows, total] = await Promise.all([
+    prisma.warehouse.findMany({
+      where,
+      select: warehouseSelect,
+      orderBy: toWarehouseOrderBy(pagination.orderBy),
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.warehouse.count({ where })
+  ]);
+  return {
+    data: rows.map(toSummary),
+    meta: buildMeta(pagination.page, pagination.limit, total)
+  };
+};
+var getWarehouseByIdFromDb = async (id) => {
+  const row = await prisma.warehouse.findFirst({
+    where: { id, deletedAt: null },
+    select: {
+      ...warehouseSelect,
+      owner: {
+        select: {
+          id: true,
+          name: true,
+          ownerProfile: { select: { businessName: true } }
+        }
+      }
+    }
+  });
+  if (!row) {
+    throw new AppError(404, "Warehouse not found");
+  }
+  const { owner, ...rest } = row;
+  return {
+    ...toSummary(rest),
+    licenseNo: rest.licenseNo,
+    owner: {
+      id: owner.id,
+      name: owner.name,
+      businessName: owner.ownerProfile?.businessName ?? null
+    }
+  };
+};
+var assertOwnership = async (warehouseId, ownerId) => {
+  const warehouse = await prisma.warehouse.findFirst({
+    where: { id: warehouseId, deletedAt: null },
+    select: { ownerId: true }
+  });
+  if (!warehouse) {
+    throw new AppError(404, "Warehouse not found");
+  }
+  if (warehouse.ownerId !== ownerId) {
+    throw new AppError(403, "You can only manage warehouses that belong to you");
+  }
+};
+var createWarehouseDb = async (ownerId, payload) => {
+  const created = await prisma.warehouse.create({
+    data: {
+      ownerId,
+      name: payload.name,
+      district: payload.district,
+      address: payload.address,
+      licenseNo: payload.licenseNo,
+      ratePerKgPerDay: payload.ratePerKgPerDay,
+      ...payload.minBookingDays === void 0 ? {} : { minBookingDays: payload.minBookingDays }
+    },
+    select: { id: true }
+  });
+  await invalidateWarehouseCache();
+  return getWarehouseByIdFromDb(created.id);
+};
+var updateWarehouseDb = async (id, ownerId, payload) => {
+  await assertOwnership(id, ownerId);
+  const data = {};
+  if (payload.name !== void 0) data.name = payload.name;
+  if (payload.district !== void 0) data.district = payload.district;
+  if (payload.address !== void 0) data.address = payload.address;
+  if (payload.licenseNo !== void 0) data.licenseNo = payload.licenseNo;
+  if (payload.ratePerKgPerDay !== void 0) data.ratePerKgPerDay = payload.ratePerKgPerDay;
+  if (payload.minBookingDays !== void 0) data.minBookingDays = payload.minBookingDays;
+  await prisma.warehouse.update({ where: { id }, data });
+  await invalidateWarehouseCache(id);
+  return getWarehouseByIdFromDb(id);
+};
+var softDeleteWarehouseDb = async (id, ownerId) => {
+  await assertOwnership(id, ownerId);
+  const activeLots = await prisma.booking.count({
+    where: {
+      deletedAt: null,
+      status: { in: ["PAID", "STORED", "WITHDRAW_REQUESTED"] },
+      chamber: { warehouseId: id }
+    }
+  });
+  if (activeLots > 0) {
+    throw new AppError(
+      409,
+      `Cannot delete this warehouse while ${activeLots} lot(s) are still stored in it`
+    );
+  }
+  const deletedAt = /* @__PURE__ */ new Date();
+  await prisma.$transaction([
+    prisma.chamber.updateMany({ where: { warehouseId: id, deletedAt: null }, data: { deletedAt } }),
+    prisma.warehouse.update({ where: { id }, data: { deletedAt } })
+  ]);
+  await invalidateWarehouseCache(id);
+};
+var warehouseService = {
+  getWarehousesFromDb,
+  getMyWarehousesFromDb,
+  getWarehouseByIdFromDb,
+  createWarehouseDb,
+  updateWarehouseDb,
+  softDeleteWarehouseDb
+};
+
+// src/modules/admin/admin.validation.ts
+import { z as z5 } from "zod";
+var USER_SORT_FIELDS = ["createdAt", "name", "email", "role"];
+var updateWarehouseStatusSchema = z5.object({
+  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) }),
+  body: z5.object({
+    status: z5.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"], {
+      error: "status must be PENDING, APPROVED, REJECTED or SUSPENDED"
+    }),
+    reason: z5.string().trim().min(3).max(255).optional()
+  }).strict()
+});
+var ADMIN_WAREHOUSE_SORT_FIELDS = [
+  "createdAt",
+  "name",
+  "ratePerKgPerDay",
+  "avgRating"
+];
+var listAdminWarehousesSchema = z5.object({
+  query: z5.object({
+    status: z5.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]).optional(),
+    search: z5.string().trim().min(1).optional(),
+    district: z5.string().trim().min(1).optional(),
+    sortBy: z5.enum(ADMIN_WAREHOUSE_SORT_FIELDS).optional(),
+    sortOrder: z5.enum(["asc", "desc"]).optional(),
+    page: z5.coerce.number().int().positive().optional(),
+    limit: z5.coerce.number().int().positive().max(100).optional()
+  }).strict()
+});
+var listUsersSchema = z5.object({
+  query: z5.object({
+    search: z5.string().trim().min(1).optional(),
+    role: z5.enum(["FARMER", "WAREHOUSE_OWNER", "ADMIN"]).optional(),
+    status: z5.enum(["ACTIVE", "BANNED"]).optional(),
+    verified: z5.enum(["true", "false"]).optional(),
+    includeDeleted: z5.enum(["true", "false"]).optional(),
+    sortBy: z5.enum(USER_SORT_FIELDS).optional(),
+    sortOrder: z5.enum(["asc", "desc"]).optional(),
+    page: z5.coerce.number().int().positive().optional(),
+    limit: z5.coerce.number().int().positive().max(100).optional()
+  }).strict()
+});
+var userIdSchema = z5.object({
+  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) })
+});
+var updateUserStatusSchema = z5.object({
+  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) }),
+  body: z5.object({
+    status: z5.enum(["ACTIVE", "BANNED"], { error: "status must be ACTIVE or BANNED" }),
+    reason: z5.string().trim().min(3).max(255).optional()
+  }).strict()
+});
+var updateUserRoleSchema = z5.object({
+  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) }),
+  body: z5.object({
+    role: z5.enum(["FARMER", "WAREHOUSE_OWNER", "ADMIN"], {
+      error: "role must be FARMER, WAREHOUSE_OWNER or ADMIN"
+    }),
+    reason: z5.string().trim().min(3).max(255).optional()
+  }).strict()
+});
+var listAuditLogsSchema = z5.object({
+  query: z5.object({
+    entityType: z5.string().trim().min(1).max(40).optional(),
+    entityId: z5.uuid({ error: "entityId must be a valid uuid" }).optional(),
+    actorId: z5.uuid({ error: "actorId must be a valid uuid" }).optional(),
+    action: z5.string().trim().min(1).max(60).optional(),
+    sortOrder: z5.enum(["asc", "desc"]).optional(),
+    page: z5.coerce.number().int().positive().optional(),
+    limit: z5.coerce.number().int().positive().max(100).optional()
   }).strict()
 });
 
@@ -1949,6 +2261,114 @@ var updateWarehouseStatusDb = async (warehouseId, adminId, payload, ip) => {
   });
   await invalidateWarehouseCache(warehouseId);
   return updated;
+};
+var readReason = (after) => {
+  if (after === null || typeof after !== "object") return { status: null, reason: null };
+  const value = after;
+  return {
+    status: typeof value.status === "string" ? value.status : null,
+    reason: typeof value.reason === "string" ? value.reason : null
+  };
+};
+var getWarehousesFromDb2 = async (filters) => {
+  const pagination = buildPagination(filters, ADMIN_WAREHOUSE_SORT_FIELDS, "createdAt");
+  const where = { deletedAt: null };
+  if (filters.status !== void 0) where.status = filters.status;
+  if (filters.district !== void 0) {
+    where.district = { equals: filters.district, mode: "insensitive" };
+  }
+  if (filters.search !== void 0) {
+    where.OR = [
+      { name: { contains: filters.search, mode: "insensitive" } },
+      { address: { contains: filters.search, mode: "insensitive" } },
+      { licenseNo: { contains: filters.search, mode: "insensitive" } },
+      { owner: { name: { contains: filters.search, mode: "insensitive" } } }
+    ];
+  }
+  const [rows, total] = await Promise.all([
+    prisma.warehouse.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        district: true,
+        address: true,
+        licenseNo: true,
+        ratePerKgPerDay: true,
+        minBookingDays: true,
+        status: true,
+        avgRating: true,
+        reviewCount: true,
+        createdAt: true,
+        chambers: { where: { deletedAt: null, isActive: true }, select: { capacityKg: true } },
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            ownerProfile: { select: { businessName: true, tradeLicenseNo: true } }
+          }
+        }
+      },
+      orderBy: toWarehouseOrderBy(pagination.orderBy),
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.warehouse.count({ where })
+  ]);
+  const decisions = rows.length === 0 ? [] : await prisma.auditLog.findMany({
+    where: {
+      entityType: "Warehouse",
+      action: "WAREHOUSE_STATUS_CHANGED",
+      entityId: { in: rows.map((row) => row.id) }
+    },
+    select: {
+      entityId: true,
+      after: true,
+      createdAt: true,
+      actor: { select: { name: true } }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+  const latest = /* @__PURE__ */ new Map();
+  for (const decision of decisions) {
+    if (!latest.has(decision.entityId)) latest.set(decision.entityId, decision);
+  }
+  return {
+    data: rows.map((row) => {
+      const decision = latest.get(row.id);
+      return {
+        id: row.id,
+        name: row.name,
+        district: row.district,
+        address: row.address,
+        licenseNo: row.licenseNo,
+        ratePerKgPerDay: Number(row.ratePerKgPerDay),
+        minBookingDays: row.minBookingDays,
+        status: row.status,
+        avgRating: row.avgRating === null ? null : Number(row.avgRating),
+        reviewCount: row.reviewCount,
+        chamberCount: row.chambers.length,
+        totalCapacityKg: row.chambers.reduce((sum, chamber) => sum + chamber.capacityKg, 0),
+        createdAt: row.createdAt,
+        owner: {
+          id: row.owner.id,
+          name: row.owner.name,
+          email: row.owner.email,
+          phone: row.owner.phone,
+          businessName: row.owner.ownerProfile?.businessName ?? null,
+          tradeLicenseNo: row.owner.ownerProfile?.tradeLicenseNo ?? null
+        },
+        lastDecision: decision ? {
+          ...readReason(decision.after),
+          at: decision.createdAt,
+          by: decision.actor?.name ?? null
+        } : null
+      };
+    }),
+    meta: buildMeta(pagination.page, pagination.limit, total)
+  };
 };
 var getUsersFromDb = async (filters) => {
   const pagination = buildPagination(filters, USER_SORT_FIELDS, "createdAt");
@@ -2222,6 +2642,7 @@ var getPlatformStatsFromDb = async () => {
 };
 var adminService = {
   updateWarehouseStatusDb,
+  getWarehousesFromDb: getWarehousesFromDb2,
   getUsersFromDb,
   getUserByIdFromDb,
   updateUserStatusDb,
@@ -2242,6 +2663,16 @@ var updateWarehouseStatus = catchAsync(async (req, res) => {
     statusCode: 200,
     message: `Warehouse status changed to ${data.status}`,
     data
+  });
+});
+var getWarehouses = catchAsync(async (_req, res) => {
+  const filters = validatedQuery(res);
+  const { data, meta } = await adminService.getWarehousesFromDb(filters);
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Warehouses retrieved successfully",
+    data,
+    meta
   });
 });
 var getUsers = catchAsync(async (_req, res) => {
@@ -2308,6 +2739,7 @@ var getStats = catchAsync(async (_req, res) => {
 });
 var adminController = {
   updateWarehouseStatus,
+  getWarehouses,
   getUsers,
   getUserById,
   updateUserStatus,
@@ -2342,6 +2774,11 @@ router.patch(
   "/users/:id/role",
   validateRequest(updateUserRoleSchema),
   adminController.updateUserRole
+);
+router.get(
+  "/warehouses",
+  validateRequest(listAdminWarehousesSchema),
+  adminController.getWarehouses
 );
 router.patch(
   "/warehouses/:id/status",
@@ -2473,58 +2910,58 @@ var toPublicUser = (user) => {
 };
 
 // src/modules/auth/auth.validation.ts
-import { z as z5 } from "zod";
+import { z as z6 } from "zod";
 var SELF_SERVICE_ROLES = ["FARMER", "WAREHOUSE_OWNER"];
 var BANGLADESHI_PHONE = /^(?:\+?880|0)1[3-9]\d{8}$/;
-var signupSchema = z5.object({
-  body: z5.object({
-    name: z5.string({ error: "name is required" }).trim().min(2, { error: "name must be at least 2 characters" }).max(80, { error: "name must be at most 80 characters" }),
-    email: z5.email({ error: "email must be a valid email address" }).trim().toLowerCase().max(255, { error: "email must be at most 255 characters" }),
-    password: z5.string({ error: "password is required" }).min(8, { error: "password must be at least 8 characters" }).max(72, { error: "password must be at most 72 characters" }).regex(/[A-Za-z]/, { error: "password must contain at least one letter" }).regex(/\d/, { error: "password must contain at least one number" }),
-    phone: z5.string().trim().regex(BANGLADESHI_PHONE, {
+var signupSchema = z6.object({
+  body: z6.object({
+    name: z6.string({ error: "name is required" }).trim().min(2, { error: "name must be at least 2 characters" }).max(80, { error: "name must be at most 80 characters" }),
+    email: z6.email({ error: "email must be a valid email address" }).trim().toLowerCase().max(255, { error: "email must be at most 255 characters" }),
+    password: z6.string({ error: "password is required" }).min(8, { error: "password must be at least 8 characters" }).max(72, { error: "password must be at most 72 characters" }).regex(/[A-Za-z]/, { error: "password must contain at least one letter" }).regex(/\d/, { error: "password must contain at least one number" }),
+    phone: z6.string().trim().regex(BANGLADESHI_PHONE, {
       error: "phone must be a valid Bangladeshi number, e.g. 01712345678"
     }).optional(),
-    role: z5.enum(SELF_SERVICE_ROLES, {
+    role: z6.enum(SELF_SERVICE_ROLES, {
       error: "role must be either FARMER or WAREHOUSE_OWNER. ADMIN accounts cannot be created through the API."
     })
   }).strict()
 });
-var loginSchema = z5.object({
-  body: z5.object({
-    email: z5.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
-    password: z5.string({ error: "password is required" }).min(1, {
+var loginSchema = z6.object({
+  body: z6.object({
+    email: z6.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
+    password: z6.string({ error: "password is required" }).min(1, {
       error: "password is required"
     })
   }).strict()
 });
-var strongPassword = z5.string({ error: "password is required" }).min(8, { error: "password must be at least 8 characters" }).max(72, { error: "password must be at most 72 characters" }).regex(/[A-Za-z]/, { error: "password must contain at least one letter" }).regex(/\d/, { error: "password must contain at least one number" });
-var setPasswordSchema = z5.object({
-  body: z5.object({
+var strongPassword = z6.string({ error: "password is required" }).min(8, { error: "password must be at least 8 characters" }).max(72, { error: "password must be at most 72 characters" }).regex(/[A-Za-z]/, { error: "password must contain at least one letter" }).regex(/\d/, { error: "password must contain at least one number" });
+var setPasswordSchema = z6.object({
+  body: z6.object({
     newPassword: strongPassword
   }).strict()
 });
-var changePasswordSchema = z5.object({
-  body: z5.object({
-    currentPassword: z5.string({ error: "currentPassword is required" }).min(1, {
+var changePasswordSchema = z6.object({
+  body: z6.object({
+    currentPassword: z6.string({ error: "currentPassword is required" }).min(1, {
       error: "currentPassword is required"
     }),
     newPassword: strongPassword
   }).strict()
 });
-var verifyOtpSchema = z5.object({
-  body: z5.object({
-    email: z5.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
-    otp: z5.string({ error: "otp is required" }).trim().regex(/^\d+$/, { error: "otp must contain digits only" })
+var verifyOtpSchema = z6.object({
+  body: z6.object({
+    email: z6.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
+    otp: z6.string({ error: "otp is required" }).trim().regex(/^\d+$/, { error: "otp must contain digits only" })
   }).strict()
 });
-var resendOtpSchema = z5.object({
-  body: z5.object({
-    email: z5.email({ error: "email must be a valid email address" }).trim().toLowerCase()
+var resendOtpSchema = z6.object({
+  body: z6.object({
+    email: z6.email({ error: "email must be a valid email address" }).trim().toLowerCase()
   }).strict()
 });
-var refreshTokenSchema = z5.object({
-  body: z5.object({
-    refreshToken: z5.string().trim().min(1).optional()
+var refreshTokenSchema = z6.object({
+  body: z6.object({
+    refreshToken: z6.string().trim().min(1).optional()
   }).strict()
 });
 
@@ -3290,12 +3727,12 @@ var availabilityController = {
 };
 
 // src/modules/warehouse/availability.validation.ts
-import { z as z6 } from "zod";
-var isoDate2 = z6.string({ error: "date is required" }).regex(/^\d{4}-\d{2}-\d{2}$/, { error: "date must be in YYYY-MM-DD format" }).transform((value) => /* @__PURE__ */ new Date(`${value}T00:00:00.000Z`)).refine((date) => !Number.isNaN(date.getTime()), { error: "date is not a real calendar date" });
-var window = z6.object({
+import { z as z7 } from "zod";
+var isoDate2 = z7.string({ error: "date is required" }).regex(/^\d{4}-\d{2}-\d{2}$/, { error: "date must be in YYYY-MM-DD format" }).transform((value) => /* @__PURE__ */ new Date(`${value}T00:00:00.000Z`)).refine((date) => !Number.isNaN(date.getTime()), { error: "date is not a real calendar date" });
+var window = z7.object({
   startDate: isoDate2,
   endDate: isoDate2,
-  cropTypeId: z6.uuid({ error: "cropTypeId must be a valid uuid" }).optional()
+  cropTypeId: z7.uuid({ error: "cropTypeId must be a valid uuid" }).optional()
 }).strict().refine((query) => query.endDate.getTime() >= query.startDate.getTime(), {
   error: "endDate must be on or after startDate",
   path: ["endDate"]
@@ -3303,35 +3740,35 @@ var window = z6.object({
   (query) => (query.endDate.getTime() - query.startDate.getTime()) / (24 * 60 * 60 * 1e3) <= 365,
   { error: "the availability window cannot exceed 365 days", path: ["endDate"] }
 );
-var warehouseAvailabilitySchema = z6.object({
-  params: z6.object({ id: z6.uuid({ error: "id must be a valid uuid" }) }),
+var warehouseAvailabilitySchema = z7.object({
+  params: z7.object({ id: z7.uuid({ error: "id must be a valid uuid" }) }),
   query: window
 });
-var chamberAvailabilitySchema = z6.object({
-  params: z6.object({ id: z6.uuid({ error: "id must be a valid uuid" }) }),
+var chamberAvailabilitySchema = z7.object({
+  params: z7.object({ id: z7.uuid({ error: "id must be a valid uuid" }) }),
   query: window
 });
 
 // src/modules/chamber/chamber.validation.ts
-import { z as z7 } from "zod";
+import { z as z8 } from "zod";
 var CHAMBER_SORT_FIELDS = ["name", "capacityKg", "createdAt"];
-var name = z7.string({ error: "name is required" }).trim().min(1, { error: "name is required" }).max(60, { error: "name must be at most 60 characters" });
-var capacityKg = z7.coerce.number({ error: "capacityKg must be a number" }).int({ error: "capacityKg must be a whole number" }).positive({ error: "capacityKg must be greater than zero" }).max(1e7, { error: "capacityKg is unrealistically large" });
-var temperature = z7.coerce.number({ error: "temperature must be a number" }).min(-40, { error: "temperature must be at least -40C" }).max(40, { error: "temperature must be at most 40C" });
-var listChambersSchema = z7.object({
-  params: z7.object({ warehouseId: z7.uuid({ error: "warehouseId must be a valid uuid" }) }),
-  query: z7.object({
-    isActive: z7.enum(["true", "false"]).optional(),
-    sortBy: z7.enum(CHAMBER_SORT_FIELDS).optional(),
-    sortOrder: z7.enum(["asc", "desc"]).optional(),
-    page: z7.coerce.number().int().positive().optional(),
-    limit: z7.coerce.number().int().positive().max(100).optional()
+var name2 = z8.string({ error: "name is required" }).trim().min(1, { error: "name is required" }).max(60, { error: "name must be at most 60 characters" });
+var capacityKg = z8.coerce.number({ error: "capacityKg must be a number" }).int({ error: "capacityKg must be a whole number" }).positive({ error: "capacityKg must be greater than zero" }).max(1e7, { error: "capacityKg is unrealistically large" });
+var temperature = z8.coerce.number({ error: "temperature must be a number" }).min(-40, { error: "temperature must be at least -40C" }).max(40, { error: "temperature must be at most 40C" });
+var listChambersSchema = z8.object({
+  params: z8.object({ warehouseId: z8.uuid({ error: "warehouseId must be a valid uuid" }) }),
+  query: z8.object({
+    isActive: z8.enum(["true", "false"]).optional(),
+    sortBy: z8.enum(CHAMBER_SORT_FIELDS).optional(),
+    sortOrder: z8.enum(["asc", "desc"]).optional(),
+    page: z8.coerce.number().int().positive().optional(),
+    limit: z8.coerce.number().int().positive().max(100).optional()
   }).strict()
 });
-var createChamberSchema = z7.object({
-  params: z7.object({ warehouseId: z7.uuid({ error: "warehouseId must be a valid uuid" }) }),
-  body: z7.object({
-    name,
+var createChamberSchema = z8.object({
+  params: z8.object({ warehouseId: z8.uuid({ error: "warehouseId must be a valid uuid" }) }),
+  body: z8.object({
+    name: name2,
     capacityKg,
     minTempC: temperature,
     maxTempC: temperature
@@ -3340,20 +3777,20 @@ var createChamberSchema = z7.object({
     path: ["maxTempC"]
   })
 });
-var updateChamberSchema = z7.object({
-  params: z7.object({ id: z7.uuid({ error: "id must be a valid uuid" }) }),
-  body: z7.object({
-    name: name.optional(),
+var updateChamberSchema = z8.object({
+  params: z8.object({ id: z8.uuid({ error: "id must be a valid uuid" }) }),
+  body: z8.object({
+    name: name2.optional(),
     capacityKg: capacityKg.optional(),
     minTempC: temperature.optional(),
     maxTempC: temperature.optional(),
-    isActive: z7.boolean().optional()
+    isActive: z8.boolean().optional()
   }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
     error: "Provide at least one field to update"
   })
 });
-var chamberIdSchema = z7.object({
-  params: z7.object({ id: z7.uuid({ error: "id must be a valid uuid" }) })
+var chamberIdSchema = z8.object({
+  params: z8.object({ id: z8.uuid({ error: "id must be a valid uuid" }) })
 });
 
 // src/modules/chamber/chamber.service.ts
@@ -3609,23 +4046,23 @@ var chamberRoute = router4;
 import { Router as Router5 } from "express";
 
 // src/modules/cropType/cropType.validation.ts
-import { z as z8 } from "zod";
+import { z as z9 } from "zod";
 var CROP_TYPE_SORT_FIELDS = ["name", "maxStorageDays", "createdAt"];
-var name2 = z8.string({ error: "name is required" }).trim().min(2, { error: "name must be at least 2 characters" }).max(60, { error: "name must be at most 60 characters" });
-var temperature2 = z8.coerce.number({ error: "temperature must be a number" }).min(-40, { error: "temperature must be at least -40C" }).max(40, { error: "temperature must be at most 40C" });
-var maxStorageDays = z8.coerce.number({ error: "maxStorageDays must be a number" }).int({ error: "maxStorageDays must be a whole number" }).positive({ error: "maxStorageDays must be greater than zero" }).max(730, { error: "maxStorageDays cannot exceed 730" });
-var listCropTypesSchema = z8.object({
-  query: z8.object({
-    search: z8.string().trim().min(1).optional(),
-    sortBy: z8.enum(CROP_TYPE_SORT_FIELDS).optional(),
-    sortOrder: z8.enum(["asc", "desc"]).optional(),
-    page: z8.coerce.number().int().positive().optional(),
-    limit: z8.coerce.number().int().positive().max(100).optional()
+var name3 = z9.string({ error: "name is required" }).trim().min(2, { error: "name must be at least 2 characters" }).max(60, { error: "name must be at most 60 characters" });
+var temperature2 = z9.coerce.number({ error: "temperature must be a number" }).min(-40, { error: "temperature must be at least -40C" }).max(40, { error: "temperature must be at most 40C" });
+var maxStorageDays = z9.coerce.number({ error: "maxStorageDays must be a number" }).int({ error: "maxStorageDays must be a whole number" }).positive({ error: "maxStorageDays must be greater than zero" }).max(730, { error: "maxStorageDays cannot exceed 730" });
+var listCropTypesSchema = z9.object({
+  query: z9.object({
+    search: z9.string().trim().min(1).optional(),
+    sortBy: z9.enum(CROP_TYPE_SORT_FIELDS).optional(),
+    sortOrder: z9.enum(["asc", "desc"]).optional(),
+    page: z9.coerce.number().int().positive().optional(),
+    limit: z9.coerce.number().int().positive().max(100).optional()
   }).strict()
 });
-var createCropTypeSchema = z8.object({
-  body: z8.object({
-    name: name2,
+var createCropTypeSchema = z9.object({
+  body: z9.object({
+    name: name3,
     idealMinTempC: temperature2,
     idealMaxTempC: temperature2,
     maxStorageDays
@@ -3634,10 +4071,10 @@ var createCropTypeSchema = z8.object({
     path: ["idealMaxTempC"]
   })
 });
-var updateCropTypeSchema = z8.object({
-  params: z8.object({ id: z8.uuid({ error: "id must be a valid uuid" }) }),
-  body: z8.object({
-    name: name2.optional(),
+var updateCropTypeSchema = z9.object({
+  params: z9.object({ id: z9.uuid({ error: "id must be a valid uuid" }) }),
+  body: z9.object({
+    name: name3.optional(),
     idealMinTempC: temperature2.optional(),
     idealMaxTempC: temperature2.optional(),
     maxStorageDays: maxStorageDays.optional()
@@ -3645,8 +4082,8 @@ var updateCropTypeSchema = z8.object({
     error: "Provide at least one field to update"
   })
 });
-var cropTypeIdSchema = z8.object({
-  params: z8.object({ id: z8.uuid({ error: "id must be a valid uuid" }) })
+var cropTypeIdSchema = z9.object({
+  params: z9.object({ id: z9.uuid({ error: "id must be a valid uuid" }) })
 });
 
 // src/modules/cropType/cropType.service.ts
@@ -3985,24 +4422,24 @@ var farmerController = {
 };
 
 // src/modules/farmer/farmer.validation.ts
-import { z as z9 } from "zod";
-var district = z9.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
-var upazila = z9.string().trim().min(2, { error: "upazila must be at least 2 characters" }).max(60, { error: "upazila must be at most 60 characters" });
-var nid = z9.string().trim().regex(/^\d{10}$|^\d{13}$|^\d{17}$/, {
+import { z as z10 } from "zod";
+var district2 = z10.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
+var upazila = z10.string().trim().min(2, { error: "upazila must be at least 2 characters" }).max(60, { error: "upazila must be at most 60 characters" });
+var nid = z10.string().trim().regex(/^\d{10}$|^\d{13}$|^\d{17}$/, {
   error: "nid must be a valid Bangladeshi NID number (10, 13 or 17 digits)"
 });
-var farmSizeAcre = z9.coerce.number({ error: "farmSizeAcre must be a number" }).positive({ error: "farmSizeAcre must be greater than zero" }).max(999999, { error: "farmSizeAcre is unrealistically large" });
-var createFarmerProfileSchema = z9.object({
-  body: z9.object({
-    district,
+var farmSizeAcre = z10.coerce.number({ error: "farmSizeAcre must be a number" }).positive({ error: "farmSizeAcre must be greater than zero" }).max(999999, { error: "farmSizeAcre is unrealistically large" });
+var createFarmerProfileSchema = z10.object({
+  body: z10.object({
+    district: district2,
     upazila: upazila.optional(),
     nid: nid.optional(),
     farmSizeAcre: farmSizeAcre.optional()
   }).strict()
 });
-var updateFarmerProfileSchema = z9.object({
-  body: z9.object({
-    district: district.optional(),
+var updateFarmerProfileSchema = z10.object({
+  body: z10.object({
+    district: district2.optional(),
     upazila: upazila.optional(),
     nid: nid.optional(),
     farmSizeAcre: farmSizeAcre.optional()
@@ -4166,24 +4603,24 @@ var ownerController = {
 };
 
 // src/modules/owner/owner.validation.ts
-import { z as z10 } from "zod";
-var businessName = z10.string({ error: "businessName is required" }).trim().min(2, { error: "businessName must be at least 2 characters" }).max(120, { error: "businessName must be at most 120 characters" });
-var tradeLicenseNo = z10.string({ error: "tradeLicenseNo is required" }).trim().min(4, { error: "tradeLicenseNo must be at least 4 characters" }).max(40, { error: "tradeLicenseNo must be at most 40 characters" });
-var nid2 = z10.string({ error: "nid is required" }).trim().regex(/^\d{10}$|^\d{13}$|^\d{17}$/, {
+import { z as z11 } from "zod";
+var businessName = z11.string({ error: "businessName is required" }).trim().min(2, { error: "businessName must be at least 2 characters" }).max(120, { error: "businessName must be at most 120 characters" });
+var tradeLicenseNo = z11.string({ error: "tradeLicenseNo is required" }).trim().min(4, { error: "tradeLicenseNo must be at least 4 characters" }).max(40, { error: "tradeLicenseNo must be at most 40 characters" });
+var nid2 = z11.string({ error: "nid is required" }).trim().regex(/^\d{10}$|^\d{13}$|^\d{17}$/, {
   error: "nid must be a valid Bangladeshi NID number (10, 13 or 17 digits)"
 });
-var district2 = z10.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
-var address = z10.string({ error: "address is required" }).trim().min(5, { error: "address must be at least 5 characters" }).max(255, { error: "address must be at most 255 characters" });
-var createOwnerProfileSchema = z10.object({
-  body: z10.object({ businessName, tradeLicenseNo, nid: nid2, district: district2, address }).strict()
+var district3 = z11.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
+var address2 = z11.string({ error: "address is required" }).trim().min(5, { error: "address must be at least 5 characters" }).max(255, { error: "address must be at most 255 characters" });
+var createOwnerProfileSchema = z11.object({
+  body: z11.object({ businessName, tradeLicenseNo, nid: nid2, district: district3, address: address2 }).strict()
 });
-var updateOwnerProfileSchema = z10.object({
-  body: z10.object({
+var updateOwnerProfileSchema = z11.object({
+  body: z11.object({
     businessName: businessName.optional(),
     tradeLicenseNo: tradeLicenseNo.optional(),
     nid: nid2.optional(),
-    district: district2.optional(),
-    address: address.optional()
+    district: district3.optional(),
+    address: address2.optional()
   }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
     error: "Provide at least one field to update"
   })
@@ -4790,28 +5227,28 @@ var paymentController = {
 import { Router as Router9 } from "express";
 
 // src/modules/payment/payment.validation.ts
-import { z as z11 } from "zod";
+import { z as z12 } from "zod";
 var PAYMENT_STATUSES = ["PENDING", "SUCCEEDED", "FAILED", "REFUNDED"];
-var createCheckoutSessionSchema = z11.object({
-  body: z11.object({
-    bookingId: z11.uuid({ error: "bookingId must be a valid uuid" })
+var createCheckoutSessionSchema = z12.object({
+  body: z12.object({
+    bookingId: z12.uuid({ error: "bookingId must be a valid uuid" })
   }).strict()
 });
-var listPaymentsSchema = z11.object({
-  query: z11.object({
-    status: z11.enum(PAYMENT_STATUSES).optional(),
-    sortOrder: z11.enum(["asc", "desc"]).optional(),
-    page: z11.coerce.number().int().positive().optional(),
-    limit: z11.coerce.number().int().positive().max(100).optional()
+var listPaymentsSchema = z12.object({
+  query: z12.object({
+    status: z12.enum(PAYMENT_STATUSES).optional(),
+    sortOrder: z12.enum(["asc", "desc"]).optional(),
+    page: z12.coerce.number().int().positive().optional(),
+    limit: z12.coerce.number().int().positive().max(100).optional()
   }).strict()
 });
-var paymentIdSchema = z11.object({
-  params: z11.object({ id: z11.uuid({ error: "id must be a valid uuid" }) })
+var paymentIdSchema = z12.object({
+  params: z12.object({ id: z12.uuid({ error: "id must be a valid uuid" }) })
 });
-var refundPaymentSchema = z11.object({
-  params: z11.object({ id: z11.uuid({ error: "id must be a valid uuid" }) }),
-  body: z11.object({
-    reason: z11.string().trim().min(3).max(255).optional()
+var refundPaymentSchema = z12.object({
+  params: z12.object({ id: z12.uuid({ error: "id must be a valid uuid" }) }),
+  body: z12.object({
+    reason: z12.string().trim().min(3).max(255).optional()
   }).strict()
 });
 
@@ -4847,80 +5284,6 @@ var paymentRoute = router9;
 
 // src/modules/review/review.route.ts
 import { Router as Router10 } from "express";
-
-// src/modules/warehouse/warehouse.validation.ts
-import { z as z12 } from "zod";
-var WAREHOUSE_SORT_FIELDS = ["createdAt", "name", "ratePerKgPerDay", "avgRating"];
-var name3 = z12.string({ error: "name is required" }).trim().min(3, { error: "name must be at least 3 characters" }).max(120, { error: "name must be at most 120 characters" });
-var district3 = z12.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
-var address2 = z12.string({ error: "address is required" }).trim().min(5, { error: "address must be at least 5 characters" }).max(255, { error: "address must be at most 255 characters" });
-var licenseNo = z12.string({ error: "licenseNo is required" }).trim().min(4, { error: "licenseNo must be at least 4 characters" }).max(40, { error: "licenseNo must be at most 40 characters" });
-var ratePerKgPerDay = z12.coerce.number({ error: "ratePerKgPerDay must be a number" }).positive({ error: "ratePerKgPerDay must be greater than zero" }).max(1e3, { error: "ratePerKgPerDay is unrealistically high" });
-var minBookingDays = z12.coerce.number({ error: "minBookingDays must be a number" }).int({ error: "minBookingDays must be a whole number" }).min(1, { error: "minBookingDays must be at least 1" }).max(365, { error: "minBookingDays cannot exceed 365" });
-var listWarehousesSchema = z12.object({
-  query: z12.object({
-    search: z12.string().trim().min(1).optional(),
-    district: z12.string().trim().min(1).optional(),
-    cropTypeId: z12.uuid({ error: "cropTypeId must be a valid uuid" }).optional(),
-    minCapacityKg: z12.coerce.number().int().positive().optional(),
-    minRate: z12.coerce.number().nonnegative().optional(),
-    maxRate: z12.coerce.number().positive().optional(),
-    minRating: z12.coerce.number().min(1).max(5).optional(),
-    sortBy: z12.enum(WAREHOUSE_SORT_FIELDS).optional(),
-    sortOrder: z12.enum(["asc", "desc"]).optional(),
-    page: z12.coerce.number().int().positive().optional(),
-    limit: z12.coerce.number().int().positive().max(100).optional()
-  }).strict().refine(
-    (query) => query.minRate === void 0 || query.maxRate === void 0 || query.maxRate >= query.minRate,
-    { error: "maxRate must be greater than or equal to minRate", path: ["maxRate"] }
-  )
-});
-var createWarehouseSchema = z12.object({
-  body: z12.object({
-    name: name3,
-    district: district3,
-    address: address2,
-    licenseNo,
-    ratePerKgPerDay,
-    minBookingDays: minBookingDays.optional()
-  }).strict()
-});
-var updateWarehouseSchema = z12.object({
-  params: z12.object({ id: z12.uuid({ error: "id must be a valid uuid" }) }),
-  body: z12.object({
-    name: name3.optional(),
-    district: district3.optional(),
-    address: address2.optional(),
-    licenseNo: licenseNo.optional(),
-    ratePerKgPerDay: ratePerKgPerDay.optional(),
-    minBookingDays: minBookingDays.optional(),
-    status: z12.undefined({
-      error: "Warehouse status is set by an admin, not by the owner"
-    }).optional()
-  }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
-    error: "Provide at least one field to update"
-  })
-});
-var warehouseIdSchema = z12.object({
-  params: z12.object({ id: z12.uuid({ error: "id must be a valid uuid" }) })
-});
-var listMyWarehousesSchema = z12.object({
-  query: z12.object({
-    status: z12.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]).optional(),
-    sortBy: z12.enum(WAREHOUSE_SORT_FIELDS).optional(),
-    sortOrder: z12.enum(["asc", "desc"]).optional(),
-    page: z12.coerce.number().int().positive().optional(),
-    limit: z12.coerce.number().int().positive().max(100).optional()
-  }).strict()
-});
-var warehouseReviewsSchema = z12.object({
-  params: z12.object({ warehouseId: z12.uuid({ error: "warehouseId must be a valid uuid" }) }),
-  query: z12.object({
-    page: z12.coerce.number().int().positive().optional(),
-    limit: z12.coerce.number().int().positive().max(100).optional(),
-    sortOrder: z12.enum(["asc", "desc"]).optional()
-  }).strict()
-});
 
 // src/modules/review/review.service.ts
 var reviewSelect = {
@@ -5412,229 +5775,8 @@ var userRoute = router11;
 // src/modules/warehouse/warehouse.route.ts
 import { Router as Router12 } from "express";
 
-// src/modules/warehouse/warehouse.service.ts
-var warehouseSelect = {
-  id: true,
-  name: true,
-  district: true,
-  address: true,
-  licenseNo: true,
-  ratePerKgPerDay: true,
-  minBookingDays: true,
-  status: true,
-  avgRating: true,
-  reviewCount: true,
-  createdAt: true,
-  chambers: {
-    where: { deletedAt: null, isActive: true },
-    select: { capacityKg: true }
-  }
-};
-var toSummary = (row) => ({
-  id: row.id,
-  name: row.name,
-  district: row.district,
-  address: row.address,
-  ratePerKgPerDay: Number(row.ratePerKgPerDay),
-  minBookingDays: row.minBookingDays,
-  status: row.status,
-  avgRating: row.avgRating === null ? null : Number(row.avgRating),
-  reviewCount: row.reviewCount,
-  chamberCount: row.chambers.length,
-  totalCapacityKg: row.chambers.reduce((sum, chamber) => sum + chamber.capacityKg, 0),
-  createdAt: row.createdAt
-});
-var buildChamberFilter = async (filters) => {
-  const chamberWhere = { deletedAt: null, isActive: true };
-  let applied = false;
-  if (filters.minCapacityKg !== void 0) {
-    chamberWhere.capacityKg = { gte: filters.minCapacityKg };
-    applied = true;
-  }
-  if (filters.cropTypeId !== void 0) {
-    const crop = await prisma.cropType.findFirst({
-      where: { id: filters.cropTypeId, deletedAt: null },
-      select: { idealMinTempC: true, idealMaxTempC: true }
-    });
-    if (!crop) {
-      throw new AppError(404, "Crop type not found");
-    }
-    chamberWhere.minTempC = { lte: crop.idealMinTempC };
-    chamberWhere.maxTempC = { gte: crop.idealMaxTempC };
-    applied = true;
-  }
-  return applied ? chamberWhere : void 0;
-};
-var toWarehouseOrderBy = (orderBy) => {
-  const [field = "createdAt"] = Object.keys(orderBy);
-  const direction = orderBy[field] ?? "desc";
-  const primary = field === "avgRating" ? { avgRating: { sort: direction, nulls: "last" } } : { [field]: direction };
-  return [primary, { id: "asc" }];
-};
-var getWarehousesFromDb = async (filters) => {
-  const pagination = buildPagination(filters, WAREHOUSE_SORT_FIELDS, "createdAt");
-  const where = { deletedAt: null, status: "APPROVED" };
-  if (filters.district !== void 0) {
-    where.district = { equals: filters.district, mode: "insensitive" };
-  }
-  if (filters.search !== void 0) {
-    where.OR = [
-      { name: { contains: filters.search, mode: "insensitive" } },
-      { address: { contains: filters.search, mode: "insensitive" } }
-    ];
-  }
-  if (filters.minRate !== void 0 || filters.maxRate !== void 0) {
-    where.ratePerKgPerDay = {
-      ...filters.minRate === void 0 ? {} : { gte: filters.minRate },
-      ...filters.maxRate === void 0 ? {} : { lte: filters.maxRate }
-    };
-  }
-  if (filters.minRating !== void 0) {
-    where.avgRating = { gte: filters.minRating };
-  }
-  const chamberFilter = await buildChamberFilter(filters);
-  if (chamberFilter !== void 0) {
-    where.chambers = { some: chamberFilter };
-  }
-  const [rows, total] = await Promise.all([
-    prisma.warehouse.findMany({
-      where,
-      select: warehouseSelect,
-      orderBy: toWarehouseOrderBy(pagination.orderBy),
-      skip: pagination.skip,
-      take: pagination.take
-    }),
-    prisma.warehouse.count({ where })
-  ]);
-  return {
-    data: rows.map(toSummary),
-    meta: buildMeta(pagination.page, pagination.limit, total)
-  };
-};
-var getMyWarehousesFromDb = async (ownerId, filters) => {
-  const pagination = buildPagination(filters, WAREHOUSE_SORT_FIELDS, "createdAt");
-  const where = {
-    ownerId,
-    deletedAt: null,
-    ...filters.status === void 0 ? {} : { status: filters.status }
-  };
-  const [rows, total] = await Promise.all([
-    prisma.warehouse.findMany({
-      where,
-      select: warehouseSelect,
-      orderBy: toWarehouseOrderBy(pagination.orderBy),
-      skip: pagination.skip,
-      take: pagination.take
-    }),
-    prisma.warehouse.count({ where })
-  ]);
-  return {
-    data: rows.map(toSummary),
-    meta: buildMeta(pagination.page, pagination.limit, total)
-  };
-};
-var getWarehouseByIdFromDb = async (id) => {
-  const row = await prisma.warehouse.findFirst({
-    where: { id, deletedAt: null },
-    select: {
-      ...warehouseSelect,
-      owner: {
-        select: {
-          id: true,
-          name: true,
-          ownerProfile: { select: { businessName: true } }
-        }
-      }
-    }
-  });
-  if (!row) {
-    throw new AppError(404, "Warehouse not found");
-  }
-  const { owner, ...rest } = row;
-  return {
-    ...toSummary(rest),
-    licenseNo: rest.licenseNo,
-    owner: {
-      id: owner.id,
-      name: owner.name,
-      businessName: owner.ownerProfile?.businessName ?? null
-    }
-  };
-};
-var assertOwnership = async (warehouseId, ownerId) => {
-  const warehouse = await prisma.warehouse.findFirst({
-    where: { id: warehouseId, deletedAt: null },
-    select: { ownerId: true }
-  });
-  if (!warehouse) {
-    throw new AppError(404, "Warehouse not found");
-  }
-  if (warehouse.ownerId !== ownerId) {
-    throw new AppError(403, "You can only manage warehouses that belong to you");
-  }
-};
-var createWarehouseDb = async (ownerId, payload) => {
-  const created = await prisma.warehouse.create({
-    data: {
-      ownerId,
-      name: payload.name,
-      district: payload.district,
-      address: payload.address,
-      licenseNo: payload.licenseNo,
-      ratePerKgPerDay: payload.ratePerKgPerDay,
-      ...payload.minBookingDays === void 0 ? {} : { minBookingDays: payload.minBookingDays }
-    },
-    select: { id: true }
-  });
-  await invalidateWarehouseCache();
-  return getWarehouseByIdFromDb(created.id);
-};
-var updateWarehouseDb = async (id, ownerId, payload) => {
-  await assertOwnership(id, ownerId);
-  const data = {};
-  if (payload.name !== void 0) data.name = payload.name;
-  if (payload.district !== void 0) data.district = payload.district;
-  if (payload.address !== void 0) data.address = payload.address;
-  if (payload.licenseNo !== void 0) data.licenseNo = payload.licenseNo;
-  if (payload.ratePerKgPerDay !== void 0) data.ratePerKgPerDay = payload.ratePerKgPerDay;
-  if (payload.minBookingDays !== void 0) data.minBookingDays = payload.minBookingDays;
-  await prisma.warehouse.update({ where: { id }, data });
-  await invalidateWarehouseCache(id);
-  return getWarehouseByIdFromDb(id);
-};
-var softDeleteWarehouseDb = async (id, ownerId) => {
-  await assertOwnership(id, ownerId);
-  const activeLots = await prisma.booking.count({
-    where: {
-      deletedAt: null,
-      status: { in: ["PAID", "STORED", "WITHDRAW_REQUESTED"] },
-      chamber: { warehouseId: id }
-    }
-  });
-  if (activeLots > 0) {
-    throw new AppError(
-      409,
-      `Cannot delete this warehouse while ${activeLots} lot(s) are still stored in it`
-    );
-  }
-  const deletedAt = /* @__PURE__ */ new Date();
-  await prisma.$transaction([
-    prisma.chamber.updateMany({ where: { warehouseId: id, deletedAt: null }, data: { deletedAt } }),
-    prisma.warehouse.update({ where: { id }, data: { deletedAt } })
-  ]);
-  await invalidateWarehouseCache(id);
-};
-var warehouseService = {
-  getWarehousesFromDb,
-  getMyWarehousesFromDb,
-  getWarehouseByIdFromDb,
-  createWarehouseDb,
-  updateWarehouseDb,
-  softDeleteWarehouseDb
-};
-
 // src/modules/warehouse/warehouse.controller.ts
-var getWarehouses = catchAsync(async (_req, res) => {
+var getWarehouses2 = catchAsync(async (_req, res) => {
   const filters = validatedQuery(res);
   const { data, meta } = await warehouseService.getWarehousesFromDb(filters);
   sendResponse(res, {
@@ -5693,7 +5835,7 @@ var deleteWarehouse = catchAsync(async (req, res) => {
   });
 });
 var warehouseController = {
-  getWarehouses,
+  getWarehouses: getWarehouses2,
   getMyWarehouses,
   getWarehouseById,
   createWarehouse,

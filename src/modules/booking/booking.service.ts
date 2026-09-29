@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { BookingStatus, Prisma } from "../../../generated/prisma/client.js";
+import type { BookingStatus, Prisma, QualityGrade } from "../../../generated/prisma/client.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
 import { writeAuditLog } from "../../utils/auditLogger.js";
@@ -46,6 +46,9 @@ const bookingSelect = {
     },
   },
   review: { select: { id: true, rating: true, comment: true, createdAt: true, deletedAt: true } },
+  inspection: {
+    select: { id: true, grade: true, actualQtyKg: true, moisturePct: true, inspectedAt: true },
+  },
 } as const;
 
 type RawBooking = {
@@ -78,6 +81,13 @@ type RawBooking = {
     comment: string | null;
     createdAt: Date;
     deletedAt: Date | null;
+  } | null;
+  inspection: {
+    id: string;
+    grade: QualityGrade;
+    actualQtyKg: number;
+    moisturePct: unknown;
+    inspectedAt: Date;
   } | null;
 };
 
@@ -118,6 +128,17 @@ const toBooking = (row: RawBooking): IBooking => ({
           rating: row.review.rating,
           comment: row.review.comment,
           createdAt: row.review.createdAt,
+        },
+  inspection:
+    row.inspection === null
+      ? null
+      : {
+          id: row.inspection.id,
+          grade: row.inspection.grade,
+          actualQtyKg: row.inspection.actualQtyKg,
+          moisturePct:
+            row.inspection.moisturePct === null ? null : Number(row.inspection.moisturePct),
+          inspectedAt: row.inspection.inspectedAt,
         },
 });
 
