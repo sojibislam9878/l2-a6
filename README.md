@@ -259,7 +259,7 @@ Base path: **`/api/v1`** · 73 endpoints · full request/response examples in th
 | **Inspections** | 2 + 1 | admin quality grading |
 | **Payments** | 7 | checkout session, webhook, success/cancel/failed, history, refund |
 | **Reviews** | 4 | gated on completed bookings, denormalized rating |
-| **Admin** | 9 | users, roles, bans, warehouse approval, audit logs, statistics |
+| **Admin** | 10 | users, roles, bans, warehouse review list + approval, audit logs, statistics |
 
 ### Status codes
 

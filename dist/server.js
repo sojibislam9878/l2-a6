@@ -1049,7 +1049,8 @@ var bookingSelect = {
       maxTempC: true,
       warehouse: { select: { id: true, name: true, district: true, ownerId: true } }
     }
-  }
+  },
+  review: { select: { id: true, rating: true, comment: true, createdAt: true, deletedAt: true } }
 };
 var toBooking = (row) => ({
   id: row.id,
@@ -1079,7 +1080,13 @@ var toBooking = (row) => ({
     name: row.chamber.warehouse.name,
     district: row.chamber.warehouse.district
   },
-  farmer: row.farmer
+  farmer: row.farmer,
+  review: row.review === null || row.review.deletedAt !== null ? null : {
+    id: row.review.id,
+    rating: row.review.rating,
+    comment: row.review.comment,
+    createdAt: row.review.createdAt
+  }
 });
 var generateLotCode = () => `AS-${(/* @__PURE__ */ new Date()).getUTCFullYear()}-${randomBytes(4).toString("hex").toUpperCase().slice(0, 6)}`;
 var startOfToday = () => {

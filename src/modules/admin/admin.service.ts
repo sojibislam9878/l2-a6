@@ -4,9 +4,12 @@ import { AppError } from "../../utils/AppError.js";
 import { writeAuditLog } from "../../utils/auditLogger.js";
 import { invalidateWarehouseCache } from "../../utils/cacheKeys.js";
 import { buildMeta, buildPagination, type PaginationMeta } from "../../utils/paginate.js";
+import { toWarehouseOrderBy } from "../warehouse/warehouse.service.js";
 import type {
   IAdminUser,
   IAdminUserDetail,
+  IAdminWarehouse,
+  IAdminWarehouseFilters,
   IAuditLogEntry,
   IAuditLogFilters,
   IPlatformStats,
@@ -15,7 +18,7 @@ import type {
   IUpdateWarehouseStatusPayload,
   IUserFilters,
 } from "./admin.interface.js";
-import { USER_SORT_FIELDS } from "./admin.validation.js";
+import { ADMIN_WAREHOUSE_SORT_FIELDS, USER_SORT_FIELDS } from "./admin.validation.js";
 
 const adminUserSelect = {
   id: true,
@@ -104,6 +107,129 @@ const updateWarehouseStatusDb = async (
   await invalidateWarehouseCache(warehouseId);
 
   return updated;
+};
+
+const readReason = (after: unknown): { status: string | null; reason: string | null } => {
+  if (after === null || typeof after !== "object") return { status: null, reason: null };
+  const value = after as Record<string, unknown>;
+  return {
+    status: typeof value.status === "string" ? value.status : null,
+    reason: typeof value.reason === "string" ? value.reason : null,
+  };
+};
+
+const getWarehousesFromDb = async (
+  filters: IAdminWarehouseFilters,
+): Promise<{ data: IAdminWarehouse[]; meta: PaginationMeta }> => {
+  const pagination = buildPagination(filters, ADMIN_WAREHOUSE_SORT_FIELDS, "createdAt");
+
+  const where: Prisma.WarehouseWhereInput = { deletedAt: null };
+
+  if (filters.status !== undefined) where.status = filters.status;
+  if (filters.district !== undefined) {
+    where.district = { equals: filters.district, mode: "insensitive" };
+  }
+  if (filters.search !== undefined) {
+    where.OR = [
+      { name: { contains: filters.search, mode: "insensitive" } },
+      { address: { contains: filters.search, mode: "insensitive" } },
+      { licenseNo: { contains: filters.search, mode: "insensitive" } },
+      { owner: { name: { contains: filters.search, mode: "insensitive" } } },
+    ];
+  }
+
+  const [rows, total] = await Promise.all([
+    prisma.warehouse.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        district: true,
+        address: true,
+        licenseNo: true,
+        ratePerKgPerDay: true,
+        minBookingDays: true,
+        status: true,
+        avgRating: true,
+        reviewCount: true,
+        createdAt: true,
+        chambers: { where: { deletedAt: null, isActive: true }, select: { capacityKg: true } },
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            ownerProfile: { select: { businessName: true, tradeLicenseNo: true } },
+          },
+        },
+      },
+      orderBy: toWarehouseOrderBy(pagination.orderBy),
+      skip: pagination.skip,
+      take: pagination.take,
+    }),
+    prisma.warehouse.count({ where }),
+  ]);
+
+  const decisions =
+    rows.length === 0
+      ? []
+      : await prisma.auditLog.findMany({
+          where: {
+            entityType: "Warehouse",
+            action: "WAREHOUSE_STATUS_CHANGED",
+            entityId: { in: rows.map((row) => row.id) },
+          },
+          select: {
+            entityId: true,
+            after: true,
+            createdAt: true,
+            actor: { select: { name: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        });
+
+  const latest = new Map<string, (typeof decisions)[number]>();
+  for (const decision of decisions) {
+    if (!latest.has(decision.entityId)) latest.set(decision.entityId, decision);
+  }
+
+  return {
+    data: rows.map((row) => {
+      const decision = latest.get(row.id);
+      return {
+        id: row.id,
+        name: row.name,
+        district: row.district,
+        address: row.address,
+        licenseNo: row.licenseNo,
+        ratePerKgPerDay: Number(row.ratePerKgPerDay),
+        minBookingDays: row.minBookingDays,
+        status: row.status,
+        avgRating: row.avgRating === null ? null : Number(row.avgRating),
+        reviewCount: row.reviewCount,
+        chamberCount: row.chambers.length,
+        totalCapacityKg: row.chambers.reduce((sum, chamber) => sum + chamber.capacityKg, 0),
+        createdAt: row.createdAt,
+        owner: {
+          id: row.owner.id,
+          name: row.owner.name,
+          email: row.owner.email,
+          phone: row.owner.phone,
+          businessName: row.owner.ownerProfile?.businessName ?? null,
+          tradeLicenseNo: row.owner.ownerProfile?.tradeLicenseNo ?? null,
+        },
+        lastDecision: decision
+          ? {
+              ...readReason(decision.after),
+              at: decision.createdAt,
+              by: decision.actor?.name ?? null,
+            }
+          : null,
+      };
+    }),
+    meta: buildMeta(pagination.page, pagination.limit, total),
+  };
 };
 
 const getUsersFromDb = async (
@@ -440,6 +566,7 @@ const getPlatformStatsFromDb = async (): Promise<IPlatformStats> => {
 
 export const adminService = {
   updateWarehouseStatusDb,
+  getWarehousesFromDb,
   getUsersFromDb,
   getUserByIdFromDb,
   updateUserStatusDb,

@@ -10,6 +10,7 @@ import { inspectionController } from "../inspection/inspection.controller.js";
 import { createInspectionSchema } from "../inspection/inspection.validation.js";
 import { adminController } from "./admin.controller.js";
 import {
+  listAdminWarehousesSchema,
   listAuditLogsSchema,
   listUsersSchema,
   updateUserRoleSchema,
@@ -48,6 +49,11 @@ router.patch(
   adminController.updateUserRole,
 );
 
+router.get(
+  "/warehouses",
+  validateRequest(listAdminWarehousesSchema),
+  adminController.getWarehouses,
+);
 router.patch(
   "/warehouses/:id/status",
   validateRequest(updateWarehouseStatusSchema),

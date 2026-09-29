@@ -14,6 +14,27 @@ export const updateWarehouseStatusSchema = z.object({
     .strict(),
 });
 
+export const ADMIN_WAREHOUSE_SORT_FIELDS = [
+  "createdAt",
+  "name",
+  "ratePerKgPerDay",
+  "avgRating",
+] as const;
+
+export const listAdminWarehousesSchema = z.object({
+  query: z
+    .object({
+      status: z.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]).optional(),
+      search: z.string().trim().min(1).optional(),
+      district: z.string().trim().min(1).optional(),
+      sortBy: z.enum(ADMIN_WAREHOUSE_SORT_FIELDS).optional(),
+      sortOrder: z.enum(["asc", "desc"]).optional(),
+      page: z.coerce.number().int().positive().optional(),
+      limit: z.coerce.number().int().positive().max(100).optional(),
+    })
+    .strict(),
+});
+
 export const listUsersSchema = z.object({
   query: z
     .object({

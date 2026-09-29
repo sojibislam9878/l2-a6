@@ -93,7 +93,7 @@ const buildChamberFilter = async (
 // Unrated warehouses (avgRating NULL) go last in both directions; Postgres
 // would otherwise put them first for DESC. `id` breaks ties so skip/take
 // pages stay stable when many rows share a sort value.
-const toWarehouseOrderBy = (
+export const toWarehouseOrderBy = (
   orderBy: Record<string, "asc" | "desc">,
 ): Prisma.WarehouseOrderByWithRelationInput[] => {
   const [field = "createdAt"] = Object.keys(orderBy);

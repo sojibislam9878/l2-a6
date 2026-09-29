@@ -2,6 +2,7 @@ import { validatedQuery } from "../../middlewares/validateRequest.js";
 import { catchAsync } from "../../utils/catchAsync.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 import type {
+  IAdminWarehouseFilters,
   IAuditLogFilters,
   IUpdateUserRolePayload,
   IUpdateUserStatusPayload,
@@ -22,6 +23,18 @@ const updateWarehouseStatus = catchAsync(async (req, res) => {
     statusCode: 200,
     message: `Warehouse status changed to ${data.status}`,
     data,
+  });
+});
+
+const getWarehouses = catchAsync(async (_req, res) => {
+  const filters = validatedQuery<IAdminWarehouseFilters>(res);
+  const { data, meta } = await adminService.getWarehousesFromDb(filters);
+
+  sendResponse(res, {
+    statusCode: 200,
+    message: "Warehouses retrieved successfully",
+    data,
+    meta,
   });
 });
 
@@ -101,6 +114,7 @@ const getStats = catchAsync(async (_req, res) => {
 
 export const adminController = {
   updateWarehouseStatus,
+  getWarehouses,
   getUsers,
   getUserById,
   updateUserStatus,

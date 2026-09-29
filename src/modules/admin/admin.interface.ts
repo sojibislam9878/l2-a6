@@ -1,6 +1,7 @@
 import type { z } from "zod";
-import type { AccountStatus, Role } from "../../../generated/prisma/client.js";
+import type { AccountStatus, Role, WarehouseStatus } from "../../../generated/prisma/client.js";
 import type {
+  listAdminWarehousesSchema,
   listAuditLogsSchema,
   listUsersSchema,
   updateUserRoleSchema,
@@ -9,6 +10,38 @@ import type {
 } from "./admin.validation.js";
 
 export type IUpdateWarehouseStatusPayload = z.infer<typeof updateWarehouseStatusSchema>["body"];
+
+export type IAdminWarehouseFilters = z.infer<typeof listAdminWarehousesSchema>["query"];
+
+export type IAdminWarehouse = {
+  id: string;
+  name: string;
+  district: string;
+  address: string;
+  licenseNo: string;
+  ratePerKgPerDay: number;
+  minBookingDays: number;
+  status: WarehouseStatus;
+  avgRating: number | null;
+  reviewCount: number;
+  chamberCount: number;
+  totalCapacityKg: number;
+  createdAt: Date;
+  owner: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    businessName: string | null;
+    tradeLicenseNo: string | null;
+  };
+  lastDecision: {
+    status: string | null;
+    reason: string | null;
+    at: Date;
+    by: string | null;
+  } | null;
+};
 
 export type IUserFilters = z.infer<typeof listUsersSchema>["query"];
 
