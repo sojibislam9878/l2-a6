@@ -49,4 +49,5 @@ export type IBooking = {
     district: string;
   };
   farmer: { id: string; name: string; phone: string | null };
+  review: { id: string; rating: number; comment: string | null; createdAt: Date } | null;
 };

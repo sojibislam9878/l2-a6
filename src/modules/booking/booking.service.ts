@@ -45,6 +45,7 @@ const bookingSelect = {
       warehouse: { select: { id: true, name: true, district: true, ownerId: true } },
     },
   },
+  review: { select: { id: true, rating: true, comment: true, createdAt: true, deletedAt: true } },
 } as const;
 
 type RawBooking = {
@@ -71,6 +72,13 @@ type RawBooking = {
     maxTempC: unknown;
     warehouse: { id: string; name: string; district: string; ownerId: string };
   };
+  review: {
+    id: string;
+    rating: number;
+    comment: string | null;
+    createdAt: Date;
+    deletedAt: Date | null;
+  } | null;
 };
 
 const toBooking = (row: RawBooking): IBooking => ({
@@ -102,6 +110,15 @@ const toBooking = (row: RawBooking): IBooking => ({
     district: row.chamber.warehouse.district,
   },
   farmer: row.farmer,
+  review:
+    row.review === null || row.review.deletedAt !== null
+      ? null
+      : {
+          id: row.review.id,
+          rating: row.review.rating,
+          comment: row.review.comment,
+          createdAt: row.review.createdAt,
+        },
 });
 
 const generateLotCode = (): string =>

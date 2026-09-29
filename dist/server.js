@@ -4430,8 +4430,8 @@ var createCheckoutSessionDb = async (farmerId, bookingId) => {
       }
     ],
     metadata: { bookingId, paymentId: payment.id },
-    success_url: `${env.APP_URL}/api/v1/payments/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${env.APP_URL}/api/v1/payments/cancel?session_id={CHECKOUT_SESSION_ID}`
+    success_url: `${env.FRONTEND_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${env.FRONTEND_URL}/payment/failed?session_id={CHECKOUT_SESSION_ID}`
   });
   if (session.url === null) {
     throw new AppError(502, "Stripe did not return a checkout URL");
@@ -4444,9 +4444,8 @@ var createCheckoutSessionDb = async (farmerId, bookingId) => {
     paymentId: payment.id,
     sessionId: session.id,
     checkoutUrl: session.url,
-    amountBdt,
-    amountUsd: usdCents / 100,
-    fxRate: env.DEMO_FX_RATE,
+    amount: usdCents / 100,
+    currency: "usd",
     expiresAt: session.expires_at === null ? null : new Date(session.expires_at * 1e3)
   };
 };
@@ -5459,6 +5458,12 @@ var buildChamberFilter = async (filters) => {
   }
   return applied ? chamberWhere : void 0;
 };
+var toWarehouseOrderBy = (orderBy) => {
+  const [field = "createdAt"] = Object.keys(orderBy);
+  const direction = orderBy[field] ?? "desc";
+  const primary = field === "avgRating" ? { avgRating: { sort: direction, nulls: "last" } } : { [field]: direction };
+  return [primary, { id: "asc" }];
+};
 var getWarehousesFromDb = async (filters) => {
   const pagination = buildPagination(filters, WAREHOUSE_SORT_FIELDS, "createdAt");
   const where = { deletedAt: null, status: "APPROVED" };
@@ -5488,7 +5493,7 @@ var getWarehousesFromDb = async (filters) => {
     prisma.warehouse.findMany({
       where,
       select: warehouseSelect,
-      orderBy: pagination.orderBy,
+      orderBy: toWarehouseOrderBy(pagination.orderBy),
       skip: pagination.skip,
       take: pagination.take
     }),
@@ -5510,7 +5515,7 @@ var getMyWarehousesFromDb = async (ownerId, filters) => {
     prisma.warehouse.findMany({
       where,
       select: warehouseSelect,
-      orderBy: pagination.orderBy,
+      orderBy: toWarehouseOrderBy(pagination.orderBy),
       skip: pagination.skip,
       take: pagination.take
     }),
