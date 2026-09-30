@@ -21,6 +21,19 @@ export const listPaymentsSchema = z.object({
     .strict(),
 });
 
+export const listAllPaymentsSchema = z.object({
+  query: z
+    .object({
+      status: z.enum(PAYMENT_STATUSES).optional(),
+      refundDue: z.enum(["true", "false"]).optional(),
+      search: z.string().trim().min(1).max(100).optional(),
+      sortOrder: z.enum(["asc", "desc"]).optional(),
+      page: z.coerce.number().int().positive().optional(),
+      limit: z.coerce.number().int().positive().max(100).optional(),
+    })
+    .strict(),
+});
+
 export const paymentIdSchema = z.object({
   params: z.object({ id: z.uuid({ error: "id must be a valid uuid" }) }),
 });

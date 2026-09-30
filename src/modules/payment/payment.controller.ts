@@ -5,6 +5,7 @@ import { catchAsync } from "../../utils/catchAsync.js";
 import { type PaymentOutcome, renderPaymentPage } from "../../utils/paymentPage.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 import type {
+  IAdminPaymentFilters,
   ICreateCheckoutSessionPayload,
   IPayment,
   IPaymentFilters,
@@ -129,6 +130,13 @@ const getMyPayments = catchAsync(async (req, res) => {
   sendResponse(res, { statusCode: 200, message: "Payments retrieved successfully", data, meta });
 });
 
+const getAllPayments = catchAsync(async (_req, res) => {
+  const filters = validatedQuery<IAdminPaymentFilters>(res);
+  const { data, meta } = await paymentService.getAllPaymentsFromDb(filters);
+
+  sendResponse(res, { statusCode: 200, message: "Payments retrieved successfully", data, meta });
+});
+
 const getPaymentById = catchAsync(async (req, res) => {
   const data = await paymentService.getPaymentByIdFromDb(String(req.params.id), {
     id: req.user!.id,
@@ -161,6 +169,7 @@ export const paymentController = {
   paymentCancel,
   paymentFailed,
   getMyPayments,
+  getAllPayments,
   getPaymentById,
   refundPayment,
 };

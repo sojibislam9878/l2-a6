@@ -7,6 +7,8 @@ import { AppError } from "../../utils/AppError.js";
 import { writeAuditLog } from "../../utils/auditLogger.js";
 import { buildMeta, buildPagination, type PaginationMeta } from "../../utils/paginate.js";
 import type {
+  IAdminPayment,
+  IAdminPaymentFilters,
   ICheckoutSession,
   IPayment,
   IPaymentActor,
@@ -62,6 +64,43 @@ const toPayment = (row: RawPayment): IPayment => ({
   paidAt: row.paidAt,
   refundedAt: row.refundedAt,
   createdAt: row.createdAt,
+});
+
+const adminPaymentSelect = {
+  ...paymentSelect,
+  booking: {
+    select: {
+      id: true,
+      lotCode: true,
+      status: true,
+      cancelReason: true,
+      farmer: { select: { id: true, name: true, email: true } },
+      chamber: { select: { warehouse: { select: { id: true, name: true, district: true } } } },
+    },
+  },
+} as const;
+
+type RawAdminPayment = Omit<RawPayment, "booking"> & {
+  booking: {
+    id: string;
+    lotCode: string;
+    status: IAdminPayment["booking"]["status"];
+    cancelReason: string | null;
+    farmer: { id: string; name: string; email: string };
+    chamber: { warehouse: { id: string; name: string; district: string } };
+  };
+};
+
+const toAdminPayment = (row: RawAdminPayment): IAdminPayment => ({
+  ...toPayment(row),
+  refundable: row.status === "SUCCEEDED" && row.stripePaymentIntentId !== null,
+  booking: {
+    id: row.booking.id,
+    status: row.booking.status,
+    cancelReason: row.booking.cancelReason,
+    farmer: row.booking.farmer,
+    warehouse: row.booking.chamber.warehouse,
+  },
 });
 
 const toUsdCents = (amountBdt: number): number => Math.round(amountBdt * env.DEMO_FX_RATE * 100);
@@ -369,6 +408,49 @@ const getMyPaymentsFromDb = async (
   return { data: rows.map(toPayment), meta: buildMeta(pagination.page, pagination.limit, total) };
 };
 
+const getAllPaymentsFromDb = async (
+  filters: IAdminPaymentFilters,
+): Promise<{ data: IAdminPayment[]; meta: PaginationMeta }> => {
+  const pagination = buildPagination(filters, ["createdAt"], "createdAt");
+
+  const bookingWhere: Prisma.BookingWhereInput = {};
+
+  if (filters.refundDue === "true") bookingWhere.status = "CANCELLED";
+
+  if (filters.search !== undefined) {
+    bookingWhere.OR = [
+      { lotCode: { contains: filters.search, mode: "insensitive" } },
+      { farmer: { name: { contains: filters.search, mode: "insensitive" } } },
+      { farmer: { email: { contains: filters.search, mode: "insensitive" } } },
+    ];
+  }
+
+  const where: Prisma.PaymentWhereInput = {
+    ...(filters.refundDue === "true"
+      ? { status: "SUCCEEDED" }
+      : filters.status === undefined
+        ? {}
+        : { status: filters.status }),
+    ...(Object.keys(bookingWhere).length === 0 ? {} : { booking: bookingWhere }),
+  };
+
+  const [rows, total] = await Promise.all([
+    prisma.payment.findMany({
+      where,
+      select: adminPaymentSelect,
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+    }),
+    prisma.payment.count({ where }),
+  ]);
+
+  return {
+    data: rows.map(toAdminPayment),
+    meta: buildMeta(pagination.page, pagination.limit, total),
+  };
+};
+
 const getPaymentByIdFromDb = async (id: string, actor: IPaymentActor): Promise<IPayment> => {
   const payment = await prisma.payment.findUnique({
     where: { id },
@@ -453,6 +535,7 @@ export const paymentService = {
   handleWebhookEvent,
   getPaymentStatusBySessionId,
   getMyPaymentsFromDb,
+  getAllPaymentsFromDb,
   getPaymentByIdFromDb,
   refundPaymentDb,
 };

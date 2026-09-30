@@ -257,7 +257,7 @@ Base path: **`/api/v1`** · 73 endpoints · full request/response examples in th
 | **Chambers** | 6 | nested create/list, availability with daily breakdown |
 | **Bookings** | 10 | create, lifecycle transitions, invoice |
 | **Inspections** | 2 + 1 | admin quality grading |
-| **Payments** | 7 | checkout session, webhook, success/cancel/failed, history, refund |
+| **Payments** | 7 + 1 | checkout session, webhook, success/cancel/failed, history, admin list, refund |
 | **Reviews** | 4 | gated on completed bookings, denormalized rating |
 | **Admin** | 10 | users, roles, bans, warehouse review list + approval, audit logs, statistics |
 

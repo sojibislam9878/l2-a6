@@ -8,6 +8,8 @@ import { bookingController } from "../booking/booking.controller.js";
 import { listBookingsSchema } from "../booking/booking.validation.js";
 import { inspectionController } from "../inspection/inspection.controller.js";
 import { createInspectionSchema } from "../inspection/inspection.validation.js";
+import { paymentController } from "../payment/payment.controller.js";
+import { listAllPaymentsSchema } from "../payment/payment.validation.js";
 import { adminController } from "./admin.controller.js";
 import {
   listAdminWarehousesSchema,
@@ -34,6 +36,7 @@ router.post(
   validateRequest(createInspectionSchema),
   inspectionController.createInspection,
 );
+router.get("/payments", validateRequest(listAllPaymentsSchema), paymentController.getAllPayments);
 router.get("/audit-logs", validateRequest(listAuditLogsSchema), adminController.getAuditLogs);
 
 router.get("/users", validateRequest(listUsersSchema), adminController.getUsers);

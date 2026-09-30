@@ -1050,7 +1050,10 @@ var bookingSelect = {
       warehouse: { select: { id: true, name: true, district: true, ownerId: true } }
     }
   },
-  review: { select: { id: true, rating: true, comment: true, createdAt: true, deletedAt: true } }
+  review: { select: { id: true, rating: true, comment: true, createdAt: true, deletedAt: true } },
+  inspection: {
+    select: { id: true, grade: true, actualQtyKg: true, moisturePct: true, inspectedAt: true }
+  }
 };
 var toBooking = (row) => ({
   id: row.id,
@@ -1086,6 +1089,13 @@ var toBooking = (row) => ({
     rating: row.review.rating,
     comment: row.review.comment,
     createdAt: row.review.createdAt
+  },
+  inspection: row.inspection === null ? null : {
+    id: row.inspection.id,
+    grade: row.inspection.grade,
+    actualQtyKg: row.inspection.actualQtyKg,
+    moisturePct: row.inspection.moisturePct === null ? null : Number(row.inspection.moisturePct),
+    inspectedAt: row.inspection.inspectedAt
   }
 });
 var generateLotCode = () => `AS-${(/* @__PURE__ */ new Date()).getUTCFullYear()}-${randomBytes(4).toString("hex").toUpperCase().slice(0, 6)}`;

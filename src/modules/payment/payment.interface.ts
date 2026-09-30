@@ -1,7 +1,8 @@
 import type { z } from "zod";
-import type { PaymentStatus, Role } from "../../../generated/prisma/client.js";
+import type { BookingStatus, PaymentStatus, Role } from "../../../generated/prisma/client.js";
 import type {
   createCheckoutSessionSchema,
+  listAllPaymentsSchema,
   listPaymentsSchema,
   refundPaymentSchema,
 } from "./payment.validation.js";
@@ -9,6 +10,8 @@ import type {
 export type ICreateCheckoutSessionPayload = z.infer<typeof createCheckoutSessionSchema>["body"];
 
 export type IPaymentFilters = z.infer<typeof listPaymentsSchema>["query"];
+
+export type IAdminPaymentFilters = z.infer<typeof listAllPaymentsSchema>["query"];
 
 export type IRefundPaymentPayload = z.infer<typeof refundPaymentSchema>["body"];
 
@@ -27,6 +30,17 @@ export type IPayment = {
   paidAt: Date | null;
   refundedAt: Date | null;
   createdAt: Date;
+};
+
+export type IAdminPayment = IPayment & {
+  refundable: boolean;
+  booking: {
+    id: string;
+    status: BookingStatus;
+    cancelReason: string | null;
+    farmer: { id: string; name: string; email: string };
+    warehouse: { id: string; name: string; district: string };
+  };
 };
 
 export type ICheckoutSession = {
