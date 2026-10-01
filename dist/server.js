@@ -24,7 +24,11 @@ var envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   PORT: z.coerce.number().int().positive().default(5e3),
   APP_URL: z.url({ error: "APP_URL must be a full URL, e.g. http://localhost:5000" }),
-  FRONTEND_URL: z.url({ error: "FRONTEND_URL must be a full URL" }),
+  FRONTEND_URL: z.string({ error: "FRONTEND_URL is required" }).transform(
+    (value) => value.split(",").map((url) => url.trim().replace(/\/+$/, "")).filter((url) => url.length > 0)
+  ).pipe(
+    z.array(z.url({ error: "Each FRONTEND_URL entry must be a full URL, comma-separated" })).min(1, { error: "FRONTEND_URL needs at least one URL" })
+  ),
   DATABASE_URL: required(
     "DATABASE_URL is empty \u2014 paste the DIRECT string (db.prisma.io) from console.prisma.io"
   ),
@@ -1844,35 +1848,728 @@ var inspectionIdSchema = z3.object({
   params: z3.object({ id: z3.uuid({ error: "id must be a valid uuid" }) })
 });
 
-// src/modules/warehouse/warehouse.validation.ts
+// src/utils/frontendUrl.ts
+var primaryFrontendUrl = env.FRONTEND_URL[0];
+var resolveFrontendUrl = (candidate) => {
+  if (!candidate) return primaryFrontendUrl;
+  try {
+    const origin = new URL(candidate).origin;
+    return env.FRONTEND_URL.includes(origin) ? origin : primaryFrontendUrl;
+  } catch {
+    return primaryFrontendUrl;
+  }
+};
+
+// src/utils/paymentPage.ts
+var CONTENT = {
+  success: {
+    title: "Payment successful",
+    headline: "Payment successful",
+    detail: "Your storage lot is confirmed. The warehouse can now take your produce in.",
+    accent: "#2f7d32",
+    tint: "#eaf5ea",
+    glyph: "&#10003;"
+  },
+  processing: {
+    title: "Payment processing",
+    headline: "Payment received",
+    detail: "Stripe has taken the payment and we are waiting for the confirmation webhook. Refresh this page in a moment.",
+    accent: "#b26a00",
+    tint: "#fdf3e3",
+    glyph: "&#8987;"
+  },
+  failed: {
+    title: "Payment failed",
+    headline: "Payment failed",
+    detail: "The payment did not go through. Your booking is unchanged, you can try paying again.",
+    accent: "#b3261e",
+    tint: "#fdecea",
+    glyph: "&#10005;"
+  },
+  cancelled: {
+    title: "Payment cancelled",
+    headline: "Payment cancelled",
+    detail: "You left the checkout before paying. The booking is still held until its payment window expires.",
+    accent: "#5a6b5a",
+    tint: "#f0f4f0",
+    glyph: "&#8592;"
+  },
+  refunded: {
+    title: "Payment refunded",
+    headline: "Payment refunded",
+    detail: "This payment has been refunded. The amount will return to the original card.",
+    accent: "#1b5e9c",
+    tint: "#e8f1fa",
+    glyph: "&#8634;"
+  }
+};
+var renderPaymentPage = (outcome, details) => {
+  const content = CONTENT[outcome];
+  const rows = details.map(
+    (row) => `<div class="row"><span class="label">${row.label}</span><span class="value">${row.value}</span></div>`
+  ).join("");
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgroStore &mdash; ${content.title}</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: #f4f6f4;
+    color: #1b2a1b;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .card {
+    width: 100%;
+    max-width: 440px;
+    background: #fff;
+    border-radius: 14px;
+    padding: 32px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 8px 24px rgba(0,0,0,.04);
+  }
+  .glyph {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 26px;
+    font-weight: 700;
+    background: ${content.tint};
+    color: ${content.accent};
+    margin-bottom: 20px;
+  }
+  h1 { margin: 0 0 8px; font-size: 21px; color: ${content.accent}; }
+  p { margin: 0 0 24px; font-size: 14px; line-height: 1.55; color: #4a5c4a; }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 0;
+    border-top: 1px solid #eef2ee;
+    font-size: 13px;
+  }
+  .label { color: #6b7c6b; }
+  .value { font-weight: 600; text-align: right; word-break: break-all; }
+  footer { margin-top: 24px; font-size: 12px; color: #8a9a8a; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="glyph">${content.glyph}</div>
+    <h1>${content.headline}</h1>
+    <p>${content.detail}</p>
+    ${rows}
+    <footer>AgroStore &mdash; Agri Cold Storage Booking Platform</footer>
+  </main>
+</body>
+</html>`;
+};
+
+// src/lib/stripe.ts
+import Stripe from "stripe";
+var stripe = new Stripe(env.STRIPE_SECRET_KEY);
+
+// src/modules/payment/payment.service.ts
+var STRIPE_MINIMUM_USD_CENTS = 50;
+var paymentSelect = {
+  id: true,
+  bookingId: true,
+  amount: true,
+  currency: true,
+  amountBdt: true,
+  fxRate: true,
+  provider: true,
+  status: true,
+  paidAt: true,
+  refundedAt: true,
+  createdAt: true,
+  farmerId: true,
+  stripePaymentIntentId: true,
+  booking: { select: { lotCode: true } }
+};
+var toPayment = (row) => ({
+  id: row.id,
+  bookingId: row.bookingId,
+  lotCode: row.booking.lotCode,
+  amount: Number(row.amount),
+  currency: row.currency,
+  amountBdt: Number(row.amountBdt),
+  fxRate: Number(row.fxRate),
+  provider: row.provider,
+  status: row.status,
+  paidAt: row.paidAt,
+  refundedAt: row.refundedAt,
+  createdAt: row.createdAt
+});
+var adminPaymentSelect = {
+  ...paymentSelect,
+  booking: {
+    select: {
+      id: true,
+      lotCode: true,
+      status: true,
+      cancelReason: true,
+      farmer: { select: { id: true, name: true, email: true } },
+      chamber: { select: { warehouse: { select: { id: true, name: true, district: true } } } }
+    }
+  }
+};
+var toAdminPayment = (row) => ({
+  ...toPayment(row),
+  refundable: row.status === "SUCCEEDED" && row.stripePaymentIntentId !== null,
+  booking: {
+    id: row.booking.id,
+    status: row.booking.status,
+    cancelReason: row.booking.cancelReason,
+    farmer: row.booking.farmer,
+    warehouse: row.booking.chamber.warehouse
+  }
+});
+var toUsdCents = (amountBdt) => Math.round(amountBdt * env.DEMO_FX_RATE * 100);
+var createCheckoutSessionDb = async (farmerId, bookingId, frontendUrl) => {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, deletedAt: null },
+    select: {
+      id: true,
+      lotCode: true,
+      status: true,
+      farmerId: true,
+      quantityKg: true,
+      estimatedCost: true,
+      holdExpiresAt: true,
+      cropType: { select: { name: true } },
+      chamber: { select: { name: true, warehouse: { select: { name: true } } } }
+    }
+  });
+  if (!booking) {
+    throw new AppError(404, "Booking not found");
+  }
+  if (booking.farmerId !== farmerId) {
+    throw new AppError(403, "You can only pay for your own bookings");
+  }
+  if (booking.status !== "APPROVED") {
+    throw new AppError(
+      409,
+      `Only an APPROVED booking can be paid for. This one is ${booking.status}.`
+    );
+  }
+  if (booking.holdExpiresAt !== null && booking.holdExpiresAt.getTime() < Date.now()) {
+    throw new AppError(409, "The payment hold on this booking has expired. Ask for re-approval.");
+  }
+  const existing = await prisma.payment.findUnique({
+    where: { bookingId },
+    select: { id: true, status: true }
+  });
+  if (existing?.status === "SUCCEEDED") {
+    throw new AppError(409, "This booking has already been paid for");
+  }
+  const amountBdt = Number(booking.estimatedCost);
+  const usdCents = toUsdCents(amountBdt);
+  if (usdCents < STRIPE_MINIMUM_USD_CENTS) {
+    throw new AppError(
+      422,
+      `This booking is too small to charge. Stripe requires at least ${STRIPE_MINIMUM_USD_CENTS} cents, this is ${usdCents}.`
+    );
+  }
+  const payment = existing === null ? await prisma.payment.create({
+    data: {
+      bookingId,
+      farmerId,
+      amount: usdCents / 100,
+      currency: "usd",
+      amountBdt,
+      fxRate: env.DEMO_FX_RATE
+    },
+    select: { id: true }
+  }) : await prisma.payment.update({
+    where: { id: existing.id },
+    data: {
+      amount: usdCents / 100,
+      amountBdt,
+      fxRate: env.DEMO_FX_RATE,
+      status: "PENDING"
+    },
+    select: { id: true }
+  });
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: usdCents,
+          product_data: {
+            name: `Cold storage - Lot ${booking.lotCode}`,
+            description: `${booking.quantityKg}kg of ${booking.cropType.name} in ${booking.chamber.warehouse.name} / ${booking.chamber.name}`
+          }
+        }
+      }
+    ],
+    metadata: { bookingId, paymentId: payment.id },
+    success_url: `${frontendUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${frontendUrl}/payment/failed?session_id={CHECKOUT_SESSION_ID}`
+  });
+  if (session.url === null) {
+    throw new AppError(502, "Stripe did not return a checkout URL");
+  }
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: { stripeSessionId: session.id }
+  });
+  return {
+    paymentId: payment.id,
+    sessionId: session.id,
+    checkoutUrl: session.url,
+    amount: usdCents / 100,
+    currency: "usd",
+    expiresAt: session.expires_at === null ? null : new Date(session.expires_at * 1e3)
+  };
+};
+var constructWebhookEvent = (rawBody, signature) => {
+  if (!isStripeWebhookConfigured) {
+    throw new AppError(
+      503,
+      "Stripe webhook secret is not configured, so payment events cannot be verified"
+    );
+  }
+  if (signature === void 0) {
+    throw new AppError(400, "Missing stripe-signature header");
+  }
+  try {
+    return stripe.webhooks.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    throw new AppError(400, `Invalid webhook signature: ${message}`);
+  }
+};
+var markPaymentSucceeded = async (session) => {
+  const paymentId = session.metadata?.paymentId;
+  const bookingId = session.metadata?.bookingId;
+  if (paymentId === void 0 || bookingId === void 0) {
+    return;
+  }
+  const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null;
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.payment.updateMany({
+      where: { id: paymentId, status: "PENDING" },
+      data: {
+        status: "SUCCEEDED",
+        paidAt: /* @__PURE__ */ new Date(),
+        ...paymentIntentId === null ? {} : { stripePaymentIntentId: paymentIntentId }
+      }
+    });
+    if (updated.count === 0) {
+      return;
+    }
+    const booking = await tx.booking.findUnique({
+      where: { id: bookingId },
+      select: { status: true }
+    });
+    if (booking?.status === "APPROVED") {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: { status: "PAID" }
+      });
+      await writeAuditLog(tx, {
+        actorId: null,
+        action: "PAYMENT_SUCCEEDED",
+        entityType: "Booking",
+        entityId: bookingId,
+        before: { status: booking.status },
+        after: { status: "PAID", paymentId }
+      });
+      return;
+    }
+    await writeAuditLog(tx, {
+      actorId: null,
+      action: "PAYMENT_SUCCEEDED_WITHOUT_BOOKING",
+      entityType: "Booking",
+      entityId: bookingId,
+      before: { status: booking?.status ?? "MISSING" },
+      after: { paymentId, needsManualRefund: true }
+    });
+  });
+};
+var markPaymentFailed = async (paymentId, bookingId, reason2) => {
+  if (paymentId === void 0) {
+    return;
+  }
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.payment.updateMany({
+      where: { id: paymentId, status: "PENDING" },
+      data: { status: "FAILED" }
+    });
+    if (updated.count === 0 || bookingId === void 0) {
+      return;
+    }
+    await writeAuditLog(tx, {
+      actorId: null,
+      action: "PAYMENT_FAILED",
+      entityType: "Booking",
+      entityId: bookingId,
+      after: { paymentId, reason: reason2 }
+    });
+  });
+};
+var handleWebhookEvent = async (event) => {
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    if (session.payment_status === "paid") {
+      await markPaymentSucceeded(session);
+      return "payment recorded";
+    }
+    return "session completed but not paid";
+  }
+  if (event.type === "checkout.session.expired") {
+    const session = event.data.object;
+    await markPaymentFailed(
+      session.metadata?.paymentId,
+      session.metadata?.bookingId,
+      "Checkout session expired"
+    );
+    return "session expiry recorded";
+  }
+  if (event.type === "payment_intent.payment_failed") {
+    const intent = event.data.object;
+    await markPaymentFailed(
+      intent.metadata?.paymentId,
+      intent.metadata?.bookingId,
+      intent.last_payment_error?.message ?? "Payment failed"
+    );
+    return "payment failure recorded";
+  }
+  return `ignored ${event.type}`;
+};
+var getPaymentStatusBySessionId = async (sessionId) => {
+  const payment = await prisma.payment.findUnique({
+    where: { stripeSessionId: sessionId },
+    select: paymentSelect
+  });
+  if (!payment) {
+    throw new AppError(404, "No payment found for that checkout session");
+  }
+  return toPayment(payment);
+};
+var getMyPaymentsFromDb = async (farmerId, filters) => {
+  const pagination = buildPagination(filters, ["createdAt"], "createdAt");
+  const where = {
+    farmerId,
+    ...filters.status === void 0 ? {} : { status: filters.status }
+  };
+  const [rows, total] = await Promise.all([
+    prisma.payment.findMany({
+      where,
+      select: paymentSelect,
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.payment.count({ where })
+  ]);
+  return { data: rows.map(toPayment), meta: buildMeta(pagination.page, pagination.limit, total) };
+};
+var getAllPaymentsFromDb = async (filters) => {
+  const pagination = buildPagination(filters, ["createdAt"], "createdAt");
+  const bookingWhere = {};
+  if (filters.refundDue === "true") bookingWhere.status = "CANCELLED";
+  if (filters.search !== void 0) {
+    bookingWhere.OR = [
+      { lotCode: { contains: filters.search, mode: "insensitive" } },
+      { farmer: { name: { contains: filters.search, mode: "insensitive" } } },
+      { farmer: { email: { contains: filters.search, mode: "insensitive" } } }
+    ];
+  }
+  const where = {
+    ...filters.refundDue === "true" ? { status: "SUCCEEDED" } : filters.status === void 0 ? {} : { status: filters.status },
+    ...Object.keys(bookingWhere).length === 0 ? {} : { booking: bookingWhere }
+  };
+  const [rows, total] = await Promise.all([
+    prisma.payment.findMany({
+      where,
+      select: adminPaymentSelect,
+      orderBy: pagination.orderBy,
+      skip: pagination.skip,
+      take: pagination.take
+    }),
+    prisma.payment.count({ where })
+  ]);
+  return {
+    data: rows.map(toAdminPayment),
+    meta: buildMeta(pagination.page, pagination.limit, total)
+  };
+};
+var getPaymentByIdFromDb = async (id, actor) => {
+  const payment = await prisma.payment.findUnique({
+    where: { id },
+    select: paymentSelect
+  });
+  if (!payment) {
+    throw new AppError(404, "Payment not found");
+  }
+  if (actor.role !== "ADMIN" && payment.farmerId !== actor.id) {
+    throw new AppError(403, "You do not have access to this payment");
+  }
+  return toPayment(payment);
+};
+var refundPaymentDb = async (paymentId, adminId, reason2, ip) => {
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    select: paymentSelect
+  });
+  if (!payment) {
+    throw new AppError(404, "Payment not found");
+  }
+  if (payment.status === "REFUNDED") {
+    throw new AppError(409, "This payment has already been refunded");
+  }
+  if (payment.status !== "SUCCEEDED") {
+    throw new AppError(
+      409,
+      `Only a SUCCEEDED payment can be refunded. This one is ${payment.status}.`
+    );
+  }
+  if (payment.stripePaymentIntentId === null) {
+    throw new AppError(
+      409,
+      "This payment has no Stripe payment intent recorded and cannot be refunded automatically"
+    );
+  }
+  try {
+    await stripe.refunds.create({ payment_intent: payment.stripePaymentIntentId });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown Stripe error";
+    throw new AppError(502, `Stripe refused the refund: ${message}`);
+  }
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.payment.update({
+      where: { id: paymentId },
+      data: { status: "REFUNDED", refundedAt: /* @__PURE__ */ new Date() },
+      select: paymentSelect
+    });
+    await writeAuditLog(tx, {
+      actorId: adminId,
+      action: "PAYMENT_REFUNDED",
+      entityType: "Payment",
+      entityId: paymentId,
+      before: { status: payment.status },
+      after: { status: updated.status, reason: reason2 ?? null },
+      ip
+    });
+    return toPayment(updated);
+  });
+};
+var paymentService = {
+  createCheckoutSessionDb,
+  constructWebhookEvent,
+  handleWebhookEvent,
+  getPaymentStatusBySessionId,
+  getMyPaymentsFromDb,
+  getAllPaymentsFromDb,
+  getPaymentByIdFromDb,
+  refundPaymentDb
+};
+
+// src/modules/payment/payment.controller.ts
+var createCheckoutSession = catchAsync(async (req, res) => {
+  const { bookingId } = req.body;
+  const data = await paymentService.createCheckoutSessionDb(
+    req.user.id,
+    bookingId,
+    resolveFrontendUrl(req.get("origin"))
+  );
+  sendResponse(res, {
+    statusCode: 201,
+    message: "Checkout session created. Open checkoutUrl to pay.",
+    data
+  });
+});
+var handleWebhook = catchAsync(async (req, res) => {
+  const signature = req.headers["stripe-signature"];
+  const event = paymentService.constructWebhookEvent(
+    req.body,
+    typeof signature === "string" ? signature : void 0
+  );
+  const outcome = await paymentService.handleWebhookEvent(event);
+  res.status(200).json({ received: true, type: event.type, outcome });
+});
+var OUTCOME_BY_STATUS = {
+  SUCCEEDED: "success",
+  PENDING: "processing",
+  FAILED: "failed",
+  REFUNDED: "refunded"
+};
+var OUTCOME_MESSAGE = {
+  success: "Payment confirmed. Your storage lot is booked.",
+  processing: "Payment received by Stripe. Waiting for confirmation, refresh in a moment.",
+  failed: "Payment failed. Your booking is unchanged, you can try again.",
+  cancelled: "Payment cancelled. The booking is still held until its payment window expires.",
+  refunded: "This payment has been refunded."
+};
+var respond = (req, res, outcome, data) => {
+  const message = OUTCOME_MESSAGE[outcome];
+  const format = typeof req.query.format === "string" ? req.query.format : "";
+  const acceptsHtml = (req.headers.accept ?? "").includes("text/html");
+  const wantsHtml = format === "html" || format !== "json" && acceptsHtml;
+  if (!wantsHtml) {
+    sendResponse(res, {
+      statusCode: 200,
+      message,
+      ...data === null ? {} : { data }
+    });
+    return;
+  }
+  const details = data === null ? [] : [
+    { label: "Lot", value: data.lotCode },
+    { label: "Amount", value: `${data.amountBdt} BDT` },
+    { label: "Charged", value: `${data.amount} ${data.currency.toUpperCase()}` },
+    { label: "Status", value: data.status }
+  ];
+  res.status(200).type("html").send(renderPaymentPage(outcome, details));
+};
+var paymentSuccess = catchAsync(async (req, res) => {
+  const sessionId = req.query.session_id;
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    throw new AppError(400, "session_id is required");
+  }
+  const data = await paymentService.getPaymentStatusBySessionId(sessionId);
+  const outcome = OUTCOME_BY_STATUS[data.status] ?? "processing";
+  respond(req, res, outcome, data);
+});
+var paymentFailed = catchAsync(async (req, res) => {
+  const sessionId = req.query.session_id;
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    respond(req, res, "failed", null);
+    return;
+  }
+  const data = await paymentService.getPaymentStatusBySessionId(sessionId);
+  respond(req, res, "failed", data);
+});
+var paymentCancel = catchAsync(async (req, res) => {
+  const sessionId = req.query.session_id;
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    respond(req, res, "cancelled", null);
+    return;
+  }
+  const data = await paymentService.getPaymentStatusBySessionId(sessionId);
+  respond(req, res, "cancelled", data);
+});
+var getMyPayments = catchAsync(async (req, res) => {
+  const filters = validatedQuery(res);
+  const { data, meta } = await paymentService.getMyPaymentsFromDb(req.user.id, filters);
+  sendResponse(res, { statusCode: 200, message: "Payments retrieved successfully", data, meta });
+});
+var getAllPayments = catchAsync(async (_req, res) => {
+  const filters = validatedQuery(res);
+  const { data, meta } = await paymentService.getAllPaymentsFromDb(filters);
+  sendResponse(res, { statusCode: 200, message: "Payments retrieved successfully", data, meta });
+});
+var getPaymentById = catchAsync(async (req, res) => {
+  const data = await paymentService.getPaymentByIdFromDb(String(req.params.id), {
+    id: req.user.id,
+    role: req.user.role
+  });
+  sendResponse(res, { statusCode: 200, message: "Payment retrieved successfully", data });
+});
+var refundPayment = catchAsync(async (req, res) => {
+  const { reason: reason2 } = req.body;
+  const data = await paymentService.refundPaymentDb(
+    String(req.params.id),
+    req.user.id,
+    reason2,
+    req.ip
+  );
+  sendResponse(res, {
+    statusCode: 200,
+    message: `Payment refunded. ${data.amountBdt} BDT will return to the farmer.`,
+    data
+  });
+});
+var paymentController = {
+  createCheckoutSession,
+  handleWebhook,
+  paymentSuccess,
+  paymentCancel,
+  paymentFailed,
+  getMyPayments,
+  getAllPayments,
+  getPaymentById,
+  refundPayment
+};
+
+// src/modules/payment/payment.validation.ts
 import { z as z4 } from "zod";
-var WAREHOUSE_SORT_FIELDS = ["createdAt", "name", "ratePerKgPerDay", "avgRating"];
-var name = z4.string({ error: "name is required" }).trim().min(3, { error: "name must be at least 3 characters" }).max(120, { error: "name must be at most 120 characters" });
-var district = z4.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
-var address = z4.string({ error: "address is required" }).trim().min(5, { error: "address must be at least 5 characters" }).max(255, { error: "address must be at most 255 characters" });
-var licenseNo = z4.string({ error: "licenseNo is required" }).trim().min(4, { error: "licenseNo must be at least 4 characters" }).max(40, { error: "licenseNo must be at most 40 characters" });
-var ratePerKgPerDay = z4.coerce.number({ error: "ratePerKgPerDay must be a number" }).positive({ error: "ratePerKgPerDay must be greater than zero" }).max(1e3, { error: "ratePerKgPerDay is unrealistically high" });
-var minBookingDays = z4.coerce.number({ error: "minBookingDays must be a number" }).int({ error: "minBookingDays must be a whole number" }).min(1, { error: "minBookingDays must be at least 1" }).max(365, { error: "minBookingDays cannot exceed 365" });
-var listWarehousesSchema = z4.object({
+var PAYMENT_STATUSES = ["PENDING", "SUCCEEDED", "FAILED", "REFUNDED"];
+var createCheckoutSessionSchema = z4.object({
+  body: z4.object({
+    bookingId: z4.uuid({ error: "bookingId must be a valid uuid" })
+  }).strict()
+});
+var listPaymentsSchema = z4.object({
   query: z4.object({
-    search: z4.string().trim().min(1).optional(),
-    district: z4.string().trim().min(1).optional(),
-    cropTypeId: z4.uuid({ error: "cropTypeId must be a valid uuid" }).optional(),
-    minCapacityKg: z4.coerce.number().int().positive().optional(),
-    minRate: z4.coerce.number().nonnegative().optional(),
-    maxRate: z4.coerce.number().positive().optional(),
-    minRating: z4.coerce.number().min(1).max(5).optional(),
-    sortBy: z4.enum(WAREHOUSE_SORT_FIELDS).optional(),
+    status: z4.enum(PAYMENT_STATUSES).optional(),
     sortOrder: z4.enum(["asc", "desc"]).optional(),
     page: z4.coerce.number().int().positive().optional(),
     limit: z4.coerce.number().int().positive().max(100).optional()
+  }).strict()
+});
+var listAllPaymentsSchema = z4.object({
+  query: z4.object({
+    status: z4.enum(PAYMENT_STATUSES).optional(),
+    refundDue: z4.enum(["true", "false"]).optional(),
+    search: z4.string().trim().min(1).max(100).optional(),
+    sortOrder: z4.enum(["asc", "desc"]).optional(),
+    page: z4.coerce.number().int().positive().optional(),
+    limit: z4.coerce.number().int().positive().max(100).optional()
+  }).strict()
+});
+var paymentIdSchema = z4.object({
+  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) })
+});
+var refundPaymentSchema = z4.object({
+  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) }),
+  body: z4.object({
+    reason: z4.string().trim().min(3).max(255).optional()
+  }).strict()
+});
+
+// src/modules/warehouse/warehouse.validation.ts
+import { z as z5 } from "zod";
+var WAREHOUSE_SORT_FIELDS = ["createdAt", "name", "ratePerKgPerDay", "avgRating"];
+var name = z5.string({ error: "name is required" }).trim().min(3, { error: "name must be at least 3 characters" }).max(120, { error: "name must be at most 120 characters" });
+var district = z5.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
+var address = z5.string({ error: "address is required" }).trim().min(5, { error: "address must be at least 5 characters" }).max(255, { error: "address must be at most 255 characters" });
+var licenseNo = z5.string({ error: "licenseNo is required" }).trim().min(4, { error: "licenseNo must be at least 4 characters" }).max(40, { error: "licenseNo must be at most 40 characters" });
+var ratePerKgPerDay = z5.coerce.number({ error: "ratePerKgPerDay must be a number" }).positive({ error: "ratePerKgPerDay must be greater than zero" }).max(1e3, { error: "ratePerKgPerDay is unrealistically high" });
+var minBookingDays = z5.coerce.number({ error: "minBookingDays must be a number" }).int({ error: "minBookingDays must be a whole number" }).min(1, { error: "minBookingDays must be at least 1" }).max(365, { error: "minBookingDays cannot exceed 365" });
+var listWarehousesSchema = z5.object({
+  query: z5.object({
+    search: z5.string().trim().min(1).optional(),
+    district: z5.string().trim().min(1).optional(),
+    cropTypeId: z5.uuid({ error: "cropTypeId must be a valid uuid" }).optional(),
+    minCapacityKg: z5.coerce.number().int().positive().optional(),
+    minRate: z5.coerce.number().nonnegative().optional(),
+    maxRate: z5.coerce.number().positive().optional(),
+    minRating: z5.coerce.number().min(1).max(5).optional(),
+    sortBy: z5.enum(WAREHOUSE_SORT_FIELDS).optional(),
+    sortOrder: z5.enum(["asc", "desc"]).optional(),
+    page: z5.coerce.number().int().positive().optional(),
+    limit: z5.coerce.number().int().positive().max(100).optional()
   }).strict().refine(
     (query) => query.minRate === void 0 || query.maxRate === void 0 || query.maxRate >= query.minRate,
     { error: "maxRate must be greater than or equal to minRate", path: ["maxRate"] }
   )
 });
-var createWarehouseSchema = z4.object({
-  body: z4.object({
+var createWarehouseSchema = z5.object({
+  body: z5.object({
     name,
     district,
     address,
@@ -1881,40 +2578,40 @@ var createWarehouseSchema = z4.object({
     minBookingDays: minBookingDays.optional()
   }).strict()
 });
-var updateWarehouseSchema = z4.object({
-  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) }),
-  body: z4.object({
+var updateWarehouseSchema = z5.object({
+  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) }),
+  body: z5.object({
     name: name.optional(),
     district: district.optional(),
     address: address.optional(),
     licenseNo: licenseNo.optional(),
     ratePerKgPerDay: ratePerKgPerDay.optional(),
     minBookingDays: minBookingDays.optional(),
-    status: z4.undefined({
+    status: z5.undefined({
       error: "Warehouse status is set by an admin, not by the owner"
     }).optional()
   }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
     error: "Provide at least one field to update"
   })
 });
-var warehouseIdSchema = z4.object({
-  params: z4.object({ id: z4.uuid({ error: "id must be a valid uuid" }) })
+var warehouseIdSchema = z5.object({
+  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) })
 });
-var listMyWarehousesSchema = z4.object({
-  query: z4.object({
-    status: z4.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]).optional(),
-    sortBy: z4.enum(WAREHOUSE_SORT_FIELDS).optional(),
-    sortOrder: z4.enum(["asc", "desc"]).optional(),
-    page: z4.coerce.number().int().positive().optional(),
-    limit: z4.coerce.number().int().positive().max(100).optional()
+var listMyWarehousesSchema = z5.object({
+  query: z5.object({
+    status: z5.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]).optional(),
+    sortBy: z5.enum(WAREHOUSE_SORT_FIELDS).optional(),
+    sortOrder: z5.enum(["asc", "desc"]).optional(),
+    page: z5.coerce.number().int().positive().optional(),
+    limit: z5.coerce.number().int().positive().max(100).optional()
   }).strict()
 });
-var warehouseReviewsSchema = z4.object({
-  params: z4.object({ warehouseId: z4.uuid({ error: "warehouseId must be a valid uuid" }) }),
-  query: z4.object({
-    page: z4.coerce.number().int().positive().optional(),
-    limit: z4.coerce.number().int().positive().max(100).optional(),
-    sortOrder: z4.enum(["asc", "desc"]).optional()
+var warehouseReviewsSchema = z5.object({
+  params: z5.object({ warehouseId: z5.uuid({ error: "warehouseId must be a valid uuid" }) }),
+  query: z5.object({
+    page: z5.coerce.number().int().positive().optional(),
+    limit: z5.coerce.number().int().positive().max(100).optional(),
+    sortOrder: z5.enum(["asc", "desc"]).optional()
   }).strict()
 });
 
@@ -2140,15 +2837,15 @@ var warehouseService = {
 };
 
 // src/modules/admin/admin.validation.ts
-import { z as z5 } from "zod";
+import { z as z6 } from "zod";
 var USER_SORT_FIELDS = ["createdAt", "name", "email", "role"];
-var updateWarehouseStatusSchema = z5.object({
-  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) }),
-  body: z5.object({
-    status: z5.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"], {
+var updateWarehouseStatusSchema = z6.object({
+  params: z6.object({ id: z6.uuid({ error: "id must be a valid uuid" }) }),
+  body: z6.object({
+    status: z6.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"], {
       error: "status must be PENDING, APPROVED, REJECTED or SUSPENDED"
     }),
-    reason: z5.string().trim().min(3).max(255).optional()
+    reason: z6.string().trim().min(3).max(255).optional()
   }).strict()
 });
 var ADMIN_WAREHOUSE_SORT_FIELDS = [
@@ -2157,58 +2854,58 @@ var ADMIN_WAREHOUSE_SORT_FIELDS = [
   "ratePerKgPerDay",
   "avgRating"
 ];
-var listAdminWarehousesSchema = z5.object({
-  query: z5.object({
-    status: z5.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]).optional(),
-    search: z5.string().trim().min(1).optional(),
-    district: z5.string().trim().min(1).optional(),
-    sortBy: z5.enum(ADMIN_WAREHOUSE_SORT_FIELDS).optional(),
-    sortOrder: z5.enum(["asc", "desc"]).optional(),
-    page: z5.coerce.number().int().positive().optional(),
-    limit: z5.coerce.number().int().positive().max(100).optional()
+var listAdminWarehousesSchema = z6.object({
+  query: z6.object({
+    status: z6.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]).optional(),
+    search: z6.string().trim().min(1).optional(),
+    district: z6.string().trim().min(1).optional(),
+    sortBy: z6.enum(ADMIN_WAREHOUSE_SORT_FIELDS).optional(),
+    sortOrder: z6.enum(["asc", "desc"]).optional(),
+    page: z6.coerce.number().int().positive().optional(),
+    limit: z6.coerce.number().int().positive().max(100).optional()
   }).strict()
 });
-var listUsersSchema = z5.object({
-  query: z5.object({
-    search: z5.string().trim().min(1).optional(),
-    role: z5.enum(["FARMER", "WAREHOUSE_OWNER", "ADMIN"]).optional(),
-    status: z5.enum(["ACTIVE", "BANNED"]).optional(),
-    verified: z5.enum(["true", "false"]).optional(),
-    includeDeleted: z5.enum(["true", "false"]).optional(),
-    sortBy: z5.enum(USER_SORT_FIELDS).optional(),
-    sortOrder: z5.enum(["asc", "desc"]).optional(),
-    page: z5.coerce.number().int().positive().optional(),
-    limit: z5.coerce.number().int().positive().max(100).optional()
+var listUsersSchema = z6.object({
+  query: z6.object({
+    search: z6.string().trim().min(1).optional(),
+    role: z6.enum(["FARMER", "WAREHOUSE_OWNER", "ADMIN"]).optional(),
+    status: z6.enum(["ACTIVE", "BANNED"]).optional(),
+    verified: z6.enum(["true", "false"]).optional(),
+    includeDeleted: z6.enum(["true", "false"]).optional(),
+    sortBy: z6.enum(USER_SORT_FIELDS).optional(),
+    sortOrder: z6.enum(["asc", "desc"]).optional(),
+    page: z6.coerce.number().int().positive().optional(),
+    limit: z6.coerce.number().int().positive().max(100).optional()
   }).strict()
 });
-var userIdSchema = z5.object({
-  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) })
+var userIdSchema = z6.object({
+  params: z6.object({ id: z6.uuid({ error: "id must be a valid uuid" }) })
 });
-var updateUserStatusSchema = z5.object({
-  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) }),
-  body: z5.object({
-    status: z5.enum(["ACTIVE", "BANNED"], { error: "status must be ACTIVE or BANNED" }),
-    reason: z5.string().trim().min(3).max(255).optional()
+var updateUserStatusSchema = z6.object({
+  params: z6.object({ id: z6.uuid({ error: "id must be a valid uuid" }) }),
+  body: z6.object({
+    status: z6.enum(["ACTIVE", "BANNED"], { error: "status must be ACTIVE or BANNED" }),
+    reason: z6.string().trim().min(3).max(255).optional()
   }).strict()
 });
-var updateUserRoleSchema = z5.object({
-  params: z5.object({ id: z5.uuid({ error: "id must be a valid uuid" }) }),
-  body: z5.object({
-    role: z5.enum(["FARMER", "WAREHOUSE_OWNER", "ADMIN"], {
+var updateUserRoleSchema = z6.object({
+  params: z6.object({ id: z6.uuid({ error: "id must be a valid uuid" }) }),
+  body: z6.object({
+    role: z6.enum(["FARMER", "WAREHOUSE_OWNER", "ADMIN"], {
       error: "role must be FARMER, WAREHOUSE_OWNER or ADMIN"
     }),
-    reason: z5.string().trim().min(3).max(255).optional()
+    reason: z6.string().trim().min(3).max(255).optional()
   }).strict()
 });
-var listAuditLogsSchema = z5.object({
-  query: z5.object({
-    entityType: z5.string().trim().min(1).max(40).optional(),
-    entityId: z5.uuid({ error: "entityId must be a valid uuid" }).optional(),
-    actorId: z5.uuid({ error: "actorId must be a valid uuid" }).optional(),
-    action: z5.string().trim().min(1).max(60).optional(),
-    sortOrder: z5.enum(["asc", "desc"]).optional(),
-    page: z5.coerce.number().int().positive().optional(),
-    limit: z5.coerce.number().int().positive().max(100).optional()
+var listAuditLogsSchema = z6.object({
+  query: z6.object({
+    entityType: z6.string().trim().min(1).max(40).optional(),
+    entityId: z6.uuid({ error: "entityId must be a valid uuid" }).optional(),
+    actorId: z6.uuid({ error: "actorId must be a valid uuid" }).optional(),
+    action: z6.string().trim().min(1).max(60).optional(),
+    sortOrder: z6.enum(["asc", "desc"]).optional(),
+    page: z6.coerce.number().int().positive().optional(),
+    limit: z6.coerce.number().int().positive().max(100).optional()
   }).strict()
 });
 
@@ -2772,6 +3469,7 @@ router.post(
   validateRequest(createInspectionSchema),
   inspectionController.createInspection
 );
+router.get("/payments", validateRequest(listAllPaymentsSchema), paymentController.getAllPayments);
 router.get("/audit-logs", validateRequest(listAuditLogsSchema), adminController.getAuditLogs);
 router.get("/users", validateRequest(listUsersSchema), adminController.getUsers);
 router.get("/users/:id", validateRequest(userIdSchema), adminController.getUserById);
@@ -2920,58 +3618,58 @@ var toPublicUser = (user) => {
 };
 
 // src/modules/auth/auth.validation.ts
-import { z as z6 } from "zod";
+import { z as z7 } from "zod";
 var SELF_SERVICE_ROLES = ["FARMER", "WAREHOUSE_OWNER"];
 var BANGLADESHI_PHONE = /^(?:\+?880|0)1[3-9]\d{8}$/;
-var signupSchema = z6.object({
-  body: z6.object({
-    name: z6.string({ error: "name is required" }).trim().min(2, { error: "name must be at least 2 characters" }).max(80, { error: "name must be at most 80 characters" }),
-    email: z6.email({ error: "email must be a valid email address" }).trim().toLowerCase().max(255, { error: "email must be at most 255 characters" }),
-    password: z6.string({ error: "password is required" }).min(8, { error: "password must be at least 8 characters" }).max(72, { error: "password must be at most 72 characters" }).regex(/[A-Za-z]/, { error: "password must contain at least one letter" }).regex(/\d/, { error: "password must contain at least one number" }),
-    phone: z6.string().trim().regex(BANGLADESHI_PHONE, {
+var signupSchema = z7.object({
+  body: z7.object({
+    name: z7.string({ error: "name is required" }).trim().min(2, { error: "name must be at least 2 characters" }).max(80, { error: "name must be at most 80 characters" }),
+    email: z7.email({ error: "email must be a valid email address" }).trim().toLowerCase().max(255, { error: "email must be at most 255 characters" }),
+    password: z7.string({ error: "password is required" }).min(8, { error: "password must be at least 8 characters" }).max(72, { error: "password must be at most 72 characters" }).regex(/[A-Za-z]/, { error: "password must contain at least one letter" }).regex(/\d/, { error: "password must contain at least one number" }),
+    phone: z7.string().trim().regex(BANGLADESHI_PHONE, {
       error: "phone must be a valid Bangladeshi number, e.g. 01712345678"
     }).optional(),
-    role: z6.enum(SELF_SERVICE_ROLES, {
+    role: z7.enum(SELF_SERVICE_ROLES, {
       error: "role must be either FARMER or WAREHOUSE_OWNER. ADMIN accounts cannot be created through the API."
     })
   }).strict()
 });
-var loginSchema = z6.object({
-  body: z6.object({
-    email: z6.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
-    password: z6.string({ error: "password is required" }).min(1, {
+var loginSchema = z7.object({
+  body: z7.object({
+    email: z7.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
+    password: z7.string({ error: "password is required" }).min(1, {
       error: "password is required"
     })
   }).strict()
 });
-var strongPassword = z6.string({ error: "password is required" }).min(8, { error: "password must be at least 8 characters" }).max(72, { error: "password must be at most 72 characters" }).regex(/[A-Za-z]/, { error: "password must contain at least one letter" }).regex(/\d/, { error: "password must contain at least one number" });
-var setPasswordSchema = z6.object({
-  body: z6.object({
+var strongPassword = z7.string({ error: "password is required" }).min(8, { error: "password must be at least 8 characters" }).max(72, { error: "password must be at most 72 characters" }).regex(/[A-Za-z]/, { error: "password must contain at least one letter" }).regex(/\d/, { error: "password must contain at least one number" });
+var setPasswordSchema = z7.object({
+  body: z7.object({
     newPassword: strongPassword
   }).strict()
 });
-var changePasswordSchema = z6.object({
-  body: z6.object({
-    currentPassword: z6.string({ error: "currentPassword is required" }).min(1, {
+var changePasswordSchema = z7.object({
+  body: z7.object({
+    currentPassword: z7.string({ error: "currentPassword is required" }).min(1, {
       error: "currentPassword is required"
     }),
     newPassword: strongPassword
   }).strict()
 });
-var verifyOtpSchema = z6.object({
-  body: z6.object({
-    email: z6.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
-    otp: z6.string({ error: "otp is required" }).trim().regex(/^\d+$/, { error: "otp must contain digits only" })
+var verifyOtpSchema = z7.object({
+  body: z7.object({
+    email: z7.email({ error: "email must be a valid email address" }).trim().toLowerCase(),
+    otp: z7.string({ error: "otp is required" }).trim().regex(/^\d+$/, { error: "otp must contain digits only" })
   }).strict()
 });
-var resendOtpSchema = z6.object({
-  body: z6.object({
-    email: z6.email({ error: "email must be a valid email address" }).trim().toLowerCase()
+var resendOtpSchema = z7.object({
+  body: z7.object({
+    email: z7.email({ error: "email must be a valid email address" }).trim().toLowerCase()
   }).strict()
 });
-var refreshTokenSchema = z6.object({
-  body: z6.object({
-    refreshToken: z6.string().trim().min(1).optional()
+var refreshTokenSchema = z7.object({
+  body: z7.object({
+    refreshToken: z7.string().trim().min(1).optional()
   }).strict()
 });
 
@@ -3185,10 +3883,11 @@ var changePasswordDb = async (userId, currentPassword, newPassword) => {
 };
 var GOOGLE_STATE_TTL_SECONDS = 300;
 var stateKey = (state) => `oauth:google:state:${state}`;
-var createGoogleAuthUrl = async (mode) => {
+var createGoogleAuthUrl = async (mode, frontendUrl) => {
   await connectRedis();
   const state = randomUUID2();
-  await redis.set(stateKey(state), mode, "EX", GOOGLE_STATE_TTL_SECONDS);
+  const stored = { mode, frontendUrl };
+  await redis.set(stateKey(state), JSON.stringify(stored), "EX", GOOGLE_STATE_TTL_SECONDS);
   return googleClient.generateAuthUrl({
     scope: GOOGLE_SCOPES,
     state,
@@ -3202,7 +3901,15 @@ var consumeGoogleState = async (state) => {
     throw new AppError(400, "This sign-in link has expired or was already used. Start again.");
   }
   await redis.del(stateKey(state));
-  return stored === "json" ? "json" : "redirect";
+  try {
+    const parsed2 = JSON.parse(stored);
+    return {
+      mode: parsed2.mode === "json" ? "json" : "redirect",
+      frontendUrl: resolveFrontendUrl(parsed2.frontendUrl)
+    };
+  } catch {
+    return { mode: stored === "json" ? "json" : "redirect", frontendUrl: primaryFrontendUrl };
+  }
 };
 var googleAuthDb = async (code) => {
   const { tokens } = await googleClient.getToken(code);
@@ -3346,20 +4053,21 @@ var logout = catchAsync(async (req, res) => {
 });
 var googleRedirect = catchAsync(async (req, res) => {
   const mode = req.query.mode === "json" ? "json" : "redirect";
-  const url = await authService.createGoogleAuthUrl(mode);
+  const frontendUrl = resolveFrontendUrl(req.get("referer"));
+  const url = await authService.createGoogleAuthUrl(mode, frontendUrl);
   res.redirect(url);
 });
 var googleCallback = catchAsync(async (req, res) => {
   const state = typeof req.query.state === "string" ? req.query.state : "";
   const code = typeof req.query.code === "string" ? req.query.code : "";
   const denied = typeof req.query.error === "string" ? req.query.error : "";
-  const mode = state.length > 0 ? await authService.consumeGoogleState(state) : "redirect";
+  const { mode, frontendUrl } = state.length > 0 ? await authService.consumeGoogleState(state) : { mode: "redirect", frontendUrl: primaryFrontendUrl };
   const fail = (status, message) => {
     if (mode === "json") {
       res.status(status).json({ success: false, message, errors: [] });
       return;
     }
-    res.redirect(`${env.FRONTEND_URL}/?error=${encodeURIComponent(message)}`);
+    res.redirect(`${frontendUrl}/?error=${encodeURIComponent(message)}`);
   };
   if (denied.length > 0) {
     fail(401, `Google sign-in was cancelled (${denied})`);
@@ -3393,7 +4101,7 @@ var googleCallback = catchAsync(async (req, res) => {
     email: result.user.email,
     role: result.user.role
   });
-  res.redirect(`${env.FRONTEND_URL}/?${params.toString()}`);
+  res.redirect(`${frontendUrl}/?${params.toString()}`);
 });
 var setPassword = catchAsync(async (req, res) => {
   const { newPassword } = req.body;
@@ -3737,12 +4445,12 @@ var availabilityController = {
 };
 
 // src/modules/warehouse/availability.validation.ts
-import { z as z7 } from "zod";
-var isoDate2 = z7.string({ error: "date is required" }).regex(/^\d{4}-\d{2}-\d{2}$/, { error: "date must be in YYYY-MM-DD format" }).transform((value) => /* @__PURE__ */ new Date(`${value}T00:00:00.000Z`)).refine((date) => !Number.isNaN(date.getTime()), { error: "date is not a real calendar date" });
-var window = z7.object({
+import { z as z8 } from "zod";
+var isoDate2 = z8.string({ error: "date is required" }).regex(/^\d{4}-\d{2}-\d{2}$/, { error: "date must be in YYYY-MM-DD format" }).transform((value) => /* @__PURE__ */ new Date(`${value}T00:00:00.000Z`)).refine((date) => !Number.isNaN(date.getTime()), { error: "date is not a real calendar date" });
+var window = z8.object({
   startDate: isoDate2,
   endDate: isoDate2,
-  cropTypeId: z7.uuid({ error: "cropTypeId must be a valid uuid" }).optional()
+  cropTypeId: z8.uuid({ error: "cropTypeId must be a valid uuid" }).optional()
 }).strict().refine((query) => query.endDate.getTime() >= query.startDate.getTime(), {
   error: "endDate must be on or after startDate",
   path: ["endDate"]
@@ -3750,34 +4458,34 @@ var window = z7.object({
   (query) => (query.endDate.getTime() - query.startDate.getTime()) / (24 * 60 * 60 * 1e3) <= 365,
   { error: "the availability window cannot exceed 365 days", path: ["endDate"] }
 );
-var warehouseAvailabilitySchema = z7.object({
-  params: z7.object({ id: z7.uuid({ error: "id must be a valid uuid" }) }),
+var warehouseAvailabilitySchema = z8.object({
+  params: z8.object({ id: z8.uuid({ error: "id must be a valid uuid" }) }),
   query: window
 });
-var chamberAvailabilitySchema = z7.object({
-  params: z7.object({ id: z7.uuid({ error: "id must be a valid uuid" }) }),
+var chamberAvailabilitySchema = z8.object({
+  params: z8.object({ id: z8.uuid({ error: "id must be a valid uuid" }) }),
   query: window
 });
 
 // src/modules/chamber/chamber.validation.ts
-import { z as z8 } from "zod";
+import { z as z9 } from "zod";
 var CHAMBER_SORT_FIELDS = ["name", "capacityKg", "createdAt"];
-var name2 = z8.string({ error: "name is required" }).trim().min(1, { error: "name is required" }).max(60, { error: "name must be at most 60 characters" });
-var capacityKg = z8.coerce.number({ error: "capacityKg must be a number" }).int({ error: "capacityKg must be a whole number" }).positive({ error: "capacityKg must be greater than zero" }).max(1e7, { error: "capacityKg is unrealistically large" });
-var temperature = z8.coerce.number({ error: "temperature must be a number" }).min(-40, { error: "temperature must be at least -40C" }).max(40, { error: "temperature must be at most 40C" });
-var listChambersSchema = z8.object({
-  params: z8.object({ warehouseId: z8.uuid({ error: "warehouseId must be a valid uuid" }) }),
-  query: z8.object({
-    isActive: z8.enum(["true", "false"]).optional(),
-    sortBy: z8.enum(CHAMBER_SORT_FIELDS).optional(),
-    sortOrder: z8.enum(["asc", "desc"]).optional(),
-    page: z8.coerce.number().int().positive().optional(),
-    limit: z8.coerce.number().int().positive().max(100).optional()
+var name2 = z9.string({ error: "name is required" }).trim().min(1, { error: "name is required" }).max(60, { error: "name must be at most 60 characters" });
+var capacityKg = z9.coerce.number({ error: "capacityKg must be a number" }).int({ error: "capacityKg must be a whole number" }).positive({ error: "capacityKg must be greater than zero" }).max(1e7, { error: "capacityKg is unrealistically large" });
+var temperature = z9.coerce.number({ error: "temperature must be a number" }).min(-40, { error: "temperature must be at least -40C" }).max(40, { error: "temperature must be at most 40C" });
+var listChambersSchema = z9.object({
+  params: z9.object({ warehouseId: z9.uuid({ error: "warehouseId must be a valid uuid" }) }),
+  query: z9.object({
+    isActive: z9.enum(["true", "false"]).optional(),
+    sortBy: z9.enum(CHAMBER_SORT_FIELDS).optional(),
+    sortOrder: z9.enum(["asc", "desc"]).optional(),
+    page: z9.coerce.number().int().positive().optional(),
+    limit: z9.coerce.number().int().positive().max(100).optional()
   }).strict()
 });
-var createChamberSchema = z8.object({
-  params: z8.object({ warehouseId: z8.uuid({ error: "warehouseId must be a valid uuid" }) }),
-  body: z8.object({
+var createChamberSchema = z9.object({
+  params: z9.object({ warehouseId: z9.uuid({ error: "warehouseId must be a valid uuid" }) }),
+  body: z9.object({
     name: name2,
     capacityKg,
     minTempC: temperature,
@@ -3787,20 +4495,20 @@ var createChamberSchema = z8.object({
     path: ["maxTempC"]
   })
 });
-var updateChamberSchema = z8.object({
-  params: z8.object({ id: z8.uuid({ error: "id must be a valid uuid" }) }),
-  body: z8.object({
+var updateChamberSchema = z9.object({
+  params: z9.object({ id: z9.uuid({ error: "id must be a valid uuid" }) }),
+  body: z9.object({
     name: name2.optional(),
     capacityKg: capacityKg.optional(),
     minTempC: temperature.optional(),
     maxTempC: temperature.optional(),
-    isActive: z8.boolean().optional()
+    isActive: z9.boolean().optional()
   }).strict().refine((body) => Object.values(body).some((value) => value !== void 0), {
     error: "Provide at least one field to update"
   })
 });
-var chamberIdSchema = z8.object({
-  params: z8.object({ id: z8.uuid({ error: "id must be a valid uuid" }) })
+var chamberIdSchema = z9.object({
+  params: z9.object({ id: z9.uuid({ error: "id must be a valid uuid" }) })
 });
 
 // src/modules/chamber/chamber.service.ts
@@ -4056,22 +4764,22 @@ var chamberRoute = router4;
 import { Router as Router5 } from "express";
 
 // src/modules/cropType/cropType.validation.ts
-import { z as z9 } from "zod";
+import { z as z10 } from "zod";
 var CROP_TYPE_SORT_FIELDS = ["name", "maxStorageDays", "createdAt"];
-var name3 = z9.string({ error: "name is required" }).trim().min(2, { error: "name must be at least 2 characters" }).max(60, { error: "name must be at most 60 characters" });
-var temperature2 = z9.coerce.number({ error: "temperature must be a number" }).min(-40, { error: "temperature must be at least -40C" }).max(40, { error: "temperature must be at most 40C" });
-var maxStorageDays = z9.coerce.number({ error: "maxStorageDays must be a number" }).int({ error: "maxStorageDays must be a whole number" }).positive({ error: "maxStorageDays must be greater than zero" }).max(730, { error: "maxStorageDays cannot exceed 730" });
-var listCropTypesSchema = z9.object({
-  query: z9.object({
-    search: z9.string().trim().min(1).optional(),
-    sortBy: z9.enum(CROP_TYPE_SORT_FIELDS).optional(),
-    sortOrder: z9.enum(["asc", "desc"]).optional(),
-    page: z9.coerce.number().int().positive().optional(),
-    limit: z9.coerce.number().int().positive().max(100).optional()
+var name3 = z10.string({ error: "name is required" }).trim().min(2, { error: "name must be at least 2 characters" }).max(60, { error: "name must be at most 60 characters" });
+var temperature2 = z10.coerce.number({ error: "temperature must be a number" }).min(-40, { error: "temperature must be at least -40C" }).max(40, { error: "temperature must be at most 40C" });
+var maxStorageDays = z10.coerce.number({ error: "maxStorageDays must be a number" }).int({ error: "maxStorageDays must be a whole number" }).positive({ error: "maxStorageDays must be greater than zero" }).max(730, { error: "maxStorageDays cannot exceed 730" });
+var listCropTypesSchema = z10.object({
+  query: z10.object({
+    search: z10.string().trim().min(1).optional(),
+    sortBy: z10.enum(CROP_TYPE_SORT_FIELDS).optional(),
+    sortOrder: z10.enum(["asc", "desc"]).optional(),
+    page: z10.coerce.number().int().positive().optional(),
+    limit: z10.coerce.number().int().positive().max(100).optional()
   }).strict()
 });
-var createCropTypeSchema = z9.object({
-  body: z9.object({
+var createCropTypeSchema = z10.object({
+  body: z10.object({
     name: name3,
     idealMinTempC: temperature2,
     idealMaxTempC: temperature2,
@@ -4081,9 +4789,9 @@ var createCropTypeSchema = z9.object({
     path: ["idealMaxTempC"]
   })
 });
-var updateCropTypeSchema = z9.object({
-  params: z9.object({ id: z9.uuid({ error: "id must be a valid uuid" }) }),
-  body: z9.object({
+var updateCropTypeSchema = z10.object({
+  params: z10.object({ id: z10.uuid({ error: "id must be a valid uuid" }) }),
+  body: z10.object({
     name: name3.optional(),
     idealMinTempC: temperature2.optional(),
     idealMaxTempC: temperature2.optional(),
@@ -4092,8 +4800,8 @@ var updateCropTypeSchema = z9.object({
     error: "Provide at least one field to update"
   })
 });
-var cropTypeIdSchema = z9.object({
-  params: z9.object({ id: z9.uuid({ error: "id must be a valid uuid" }) })
+var cropTypeIdSchema = z10.object({
+  params: z10.object({ id: z10.uuid({ error: "id must be a valid uuid" }) })
 });
 
 // src/modules/cropType/cropType.service.ts
@@ -4432,23 +5140,23 @@ var farmerController = {
 };
 
 // src/modules/farmer/farmer.validation.ts
-import { z as z10 } from "zod";
-var district2 = z10.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
-var upazila = z10.string().trim().min(2, { error: "upazila must be at least 2 characters" }).max(60, { error: "upazila must be at most 60 characters" });
-var nid = z10.string().trim().regex(/^\d{10}$|^\d{13}$|^\d{17}$/, {
+import { z as z11 } from "zod";
+var district2 = z11.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
+var upazila = z11.string().trim().min(2, { error: "upazila must be at least 2 characters" }).max(60, { error: "upazila must be at most 60 characters" });
+var nid = z11.string().trim().regex(/^\d{10}$|^\d{13}$|^\d{17}$/, {
   error: "nid must be a valid Bangladeshi NID number (10, 13 or 17 digits)"
 });
-var farmSizeAcre = z10.coerce.number({ error: "farmSizeAcre must be a number" }).positive({ error: "farmSizeAcre must be greater than zero" }).max(999999, { error: "farmSizeAcre is unrealistically large" });
-var createFarmerProfileSchema = z10.object({
-  body: z10.object({
+var farmSizeAcre = z11.coerce.number({ error: "farmSizeAcre must be a number" }).positive({ error: "farmSizeAcre must be greater than zero" }).max(999999, { error: "farmSizeAcre is unrealistically large" });
+var createFarmerProfileSchema = z11.object({
+  body: z11.object({
     district: district2,
     upazila: upazila.optional(),
     nid: nid.optional(),
     farmSizeAcre: farmSizeAcre.optional()
   }).strict()
 });
-var updateFarmerProfileSchema = z10.object({
-  body: z10.object({
+var updateFarmerProfileSchema = z11.object({
+  body: z11.object({
     district: district2.optional(),
     upazila: upazila.optional(),
     nid: nid.optional(),
@@ -4613,19 +5321,19 @@ var ownerController = {
 };
 
 // src/modules/owner/owner.validation.ts
-import { z as z11 } from "zod";
-var businessName = z11.string({ error: "businessName is required" }).trim().min(2, { error: "businessName must be at least 2 characters" }).max(120, { error: "businessName must be at most 120 characters" });
-var tradeLicenseNo = z11.string({ error: "tradeLicenseNo is required" }).trim().min(4, { error: "tradeLicenseNo must be at least 4 characters" }).max(40, { error: "tradeLicenseNo must be at most 40 characters" });
-var nid2 = z11.string({ error: "nid is required" }).trim().regex(/^\d{10}$|^\d{13}$|^\d{17}$/, {
+import { z as z12 } from "zod";
+var businessName = z12.string({ error: "businessName is required" }).trim().min(2, { error: "businessName must be at least 2 characters" }).max(120, { error: "businessName must be at most 120 characters" });
+var tradeLicenseNo = z12.string({ error: "tradeLicenseNo is required" }).trim().min(4, { error: "tradeLicenseNo must be at least 4 characters" }).max(40, { error: "tradeLicenseNo must be at most 40 characters" });
+var nid2 = z12.string({ error: "nid is required" }).trim().regex(/^\d{10}$|^\d{13}$|^\d{17}$/, {
   error: "nid must be a valid Bangladeshi NID number (10, 13 or 17 digits)"
 });
-var district3 = z11.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
-var address2 = z11.string({ error: "address is required" }).trim().min(5, { error: "address must be at least 5 characters" }).max(255, { error: "address must be at most 255 characters" });
-var createOwnerProfileSchema = z11.object({
-  body: z11.object({ businessName, tradeLicenseNo, nid: nid2, district: district3, address: address2 }).strict()
+var district3 = z12.string({ error: "district is required" }).trim().min(2, { error: "district must be at least 2 characters" }).max(60, { error: "district must be at most 60 characters" });
+var address2 = z12.string({ error: "address is required" }).trim().min(5, { error: "address must be at least 5 characters" }).max(255, { error: "address must be at most 255 characters" });
+var createOwnerProfileSchema = z12.object({
+  body: z12.object({ businessName, tradeLicenseNo, nid: nid2, district: district3, address: address2 }).strict()
 });
-var updateOwnerProfileSchema = z11.object({
-  body: z11.object({
+var updateOwnerProfileSchema = z12.object({
+  body: z12.object({
     businessName: businessName.optional(),
     tradeLicenseNo: tradeLicenseNo.optional(),
     nid: nid2.optional(),
@@ -4653,616 +5361,8 @@ router8.patch(
 );
 var ownerRoute = router8;
 
-// src/utils/paymentPage.ts
-var CONTENT = {
-  success: {
-    title: "Payment successful",
-    headline: "Payment successful",
-    detail: "Your storage lot is confirmed. The warehouse can now take your produce in.",
-    accent: "#2f7d32",
-    tint: "#eaf5ea",
-    glyph: "&#10003;"
-  },
-  processing: {
-    title: "Payment processing",
-    headline: "Payment received",
-    detail: "Stripe has taken the payment and we are waiting for the confirmation webhook. Refresh this page in a moment.",
-    accent: "#b26a00",
-    tint: "#fdf3e3",
-    glyph: "&#8987;"
-  },
-  failed: {
-    title: "Payment failed",
-    headline: "Payment failed",
-    detail: "The payment did not go through. Your booking is unchanged, you can try paying again.",
-    accent: "#b3261e",
-    tint: "#fdecea",
-    glyph: "&#10005;"
-  },
-  cancelled: {
-    title: "Payment cancelled",
-    headline: "Payment cancelled",
-    detail: "You left the checkout before paying. The booking is still held until its payment window expires.",
-    accent: "#5a6b5a",
-    tint: "#f0f4f0",
-    glyph: "&#8592;"
-  },
-  refunded: {
-    title: "Payment refunded",
-    headline: "Payment refunded",
-    detail: "This payment has been refunded. The amount will return to the original card.",
-    accent: "#1b5e9c",
-    tint: "#e8f1fa",
-    glyph: "&#8634;"
-  }
-};
-var renderPaymentPage = (outcome, details) => {
-  const content = CONTENT[outcome];
-  const rows = details.map(
-    (row) => `<div class="row"><span class="label">${row.label}</span><span class="value">${row.value}</span></div>`
-  ).join("");
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AgroStore &mdash; ${content.title}</title>
-<style>
-  :root { color-scheme: light; }
-  body {
-    margin: 0;
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-    background: #f4f6f4;
-    color: #1b2a1b;
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  .card {
-    width: 100%;
-    max-width: 440px;
-    background: #fff;
-    border-radius: 14px;
-    padding: 32px;
-    box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 8px 24px rgba(0,0,0,.04);
-  }
-  .glyph {
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    font-size: 26px;
-    font-weight: 700;
-    background: ${content.tint};
-    color: ${content.accent};
-    margin-bottom: 20px;
-  }
-  h1 { margin: 0 0 8px; font-size: 21px; color: ${content.accent}; }
-  p { margin: 0 0 24px; font-size: 14px; line-height: 1.55; color: #4a5c4a; }
-  .row {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 10px 0;
-    border-top: 1px solid #eef2ee;
-    font-size: 13px;
-  }
-  .label { color: #6b7c6b; }
-  .value { font-weight: 600; text-align: right; word-break: break-all; }
-  footer { margin-top: 24px; font-size: 12px; color: #8a9a8a; }
-</style>
-</head>
-<body>
-  <main class="card">
-    <div class="glyph">${content.glyph}</div>
-    <h1>${content.headline}</h1>
-    <p>${content.detail}</p>
-    ${rows}
-    <footer>AgroStore &mdash; Agri Cold Storage Booking Platform</footer>
-  </main>
-</body>
-</html>`;
-};
-
-// src/lib/stripe.ts
-import Stripe from "stripe";
-var stripe = new Stripe(env.STRIPE_SECRET_KEY);
-
-// src/modules/payment/payment.service.ts
-var STRIPE_MINIMUM_USD_CENTS = 50;
-var paymentSelect = {
-  id: true,
-  bookingId: true,
-  amount: true,
-  currency: true,
-  amountBdt: true,
-  fxRate: true,
-  provider: true,
-  status: true,
-  paidAt: true,
-  refundedAt: true,
-  createdAt: true,
-  farmerId: true,
-  stripePaymentIntentId: true,
-  booking: { select: { lotCode: true } }
-};
-var toPayment = (row) => ({
-  id: row.id,
-  bookingId: row.bookingId,
-  lotCode: row.booking.lotCode,
-  amount: Number(row.amount),
-  currency: row.currency,
-  amountBdt: Number(row.amountBdt),
-  fxRate: Number(row.fxRate),
-  provider: row.provider,
-  status: row.status,
-  paidAt: row.paidAt,
-  refundedAt: row.refundedAt,
-  createdAt: row.createdAt
-});
-var toUsdCents = (amountBdt) => Math.round(amountBdt * env.DEMO_FX_RATE * 100);
-var createCheckoutSessionDb = async (farmerId, bookingId) => {
-  const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, deletedAt: null },
-    select: {
-      id: true,
-      lotCode: true,
-      status: true,
-      farmerId: true,
-      quantityKg: true,
-      estimatedCost: true,
-      holdExpiresAt: true,
-      cropType: { select: { name: true } },
-      chamber: { select: { name: true, warehouse: { select: { name: true } } } }
-    }
-  });
-  if (!booking) {
-    throw new AppError(404, "Booking not found");
-  }
-  if (booking.farmerId !== farmerId) {
-    throw new AppError(403, "You can only pay for your own bookings");
-  }
-  if (booking.status !== "APPROVED") {
-    throw new AppError(
-      409,
-      `Only an APPROVED booking can be paid for. This one is ${booking.status}.`
-    );
-  }
-  if (booking.holdExpiresAt !== null && booking.holdExpiresAt.getTime() < Date.now()) {
-    throw new AppError(409, "The payment hold on this booking has expired. Ask for re-approval.");
-  }
-  const existing = await prisma.payment.findUnique({
-    where: { bookingId },
-    select: { id: true, status: true }
-  });
-  if (existing?.status === "SUCCEEDED") {
-    throw new AppError(409, "This booking has already been paid for");
-  }
-  const amountBdt = Number(booking.estimatedCost);
-  const usdCents = toUsdCents(amountBdt);
-  if (usdCents < STRIPE_MINIMUM_USD_CENTS) {
-    throw new AppError(
-      422,
-      `This booking is too small to charge. Stripe requires at least ${STRIPE_MINIMUM_USD_CENTS} cents, this is ${usdCents}.`
-    );
-  }
-  const payment = existing === null ? await prisma.payment.create({
-    data: {
-      bookingId,
-      farmerId,
-      amount: usdCents / 100,
-      currency: "usd",
-      amountBdt,
-      fxRate: env.DEMO_FX_RATE
-    },
-    select: { id: true }
-  }) : await prisma.payment.update({
-    where: { id: existing.id },
-    data: {
-      amount: usdCents / 100,
-      amountBdt,
-      fxRate: env.DEMO_FX_RATE,
-      status: "PENDING"
-    },
-    select: { id: true }
-  });
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "usd",
-          unit_amount: usdCents,
-          product_data: {
-            name: `Cold storage - Lot ${booking.lotCode}`,
-            description: `${booking.quantityKg}kg of ${booking.cropType.name} in ${booking.chamber.warehouse.name} / ${booking.chamber.name}`
-          }
-        }
-      }
-    ],
-    metadata: { bookingId, paymentId: payment.id },
-    success_url: `${env.FRONTEND_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${env.FRONTEND_URL}/payment/failed?session_id={CHECKOUT_SESSION_ID}`
-  });
-  if (session.url === null) {
-    throw new AppError(502, "Stripe did not return a checkout URL");
-  }
-  await prisma.payment.update({
-    where: { id: payment.id },
-    data: { stripeSessionId: session.id }
-  });
-  return {
-    paymentId: payment.id,
-    sessionId: session.id,
-    checkoutUrl: session.url,
-    amount: usdCents / 100,
-    currency: "usd",
-    expiresAt: session.expires_at === null ? null : new Date(session.expires_at * 1e3)
-  };
-};
-var constructWebhookEvent = (rawBody, signature) => {
-  if (!isStripeWebhookConfigured) {
-    throw new AppError(
-      503,
-      "Stripe webhook secret is not configured, so payment events cannot be verified"
-    );
-  }
-  if (signature === void 0) {
-    throw new AppError(400, "Missing stripe-signature header");
-  }
-  try {
-    return stripe.webhooks.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    throw new AppError(400, `Invalid webhook signature: ${message}`);
-  }
-};
-var markPaymentSucceeded = async (session) => {
-  const paymentId = session.metadata?.paymentId;
-  const bookingId = session.metadata?.bookingId;
-  if (paymentId === void 0 || bookingId === void 0) {
-    return;
-  }
-  const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null;
-  await prisma.$transaction(async (tx) => {
-    const updated = await tx.payment.updateMany({
-      where: { id: paymentId, status: "PENDING" },
-      data: {
-        status: "SUCCEEDED",
-        paidAt: /* @__PURE__ */ new Date(),
-        ...paymentIntentId === null ? {} : { stripePaymentIntentId: paymentIntentId }
-      }
-    });
-    if (updated.count === 0) {
-      return;
-    }
-    const booking = await tx.booking.findUnique({
-      where: { id: bookingId },
-      select: { status: true }
-    });
-    if (booking?.status === "APPROVED") {
-      await tx.booking.update({
-        where: { id: bookingId },
-        data: { status: "PAID" }
-      });
-      await writeAuditLog(tx, {
-        actorId: null,
-        action: "PAYMENT_SUCCEEDED",
-        entityType: "Booking",
-        entityId: bookingId,
-        before: { status: booking.status },
-        after: { status: "PAID", paymentId }
-      });
-      return;
-    }
-    await writeAuditLog(tx, {
-      actorId: null,
-      action: "PAYMENT_SUCCEEDED_WITHOUT_BOOKING",
-      entityType: "Booking",
-      entityId: bookingId,
-      before: { status: booking?.status ?? "MISSING" },
-      after: { paymentId, needsManualRefund: true }
-    });
-  });
-};
-var markPaymentFailed = async (paymentId, bookingId, reason2) => {
-  if (paymentId === void 0) {
-    return;
-  }
-  await prisma.$transaction(async (tx) => {
-    const updated = await tx.payment.updateMany({
-      where: { id: paymentId, status: "PENDING" },
-      data: { status: "FAILED" }
-    });
-    if (updated.count === 0 || bookingId === void 0) {
-      return;
-    }
-    await writeAuditLog(tx, {
-      actorId: null,
-      action: "PAYMENT_FAILED",
-      entityType: "Booking",
-      entityId: bookingId,
-      after: { paymentId, reason: reason2 }
-    });
-  });
-};
-var handleWebhookEvent = async (event) => {
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object;
-    if (session.payment_status === "paid") {
-      await markPaymentSucceeded(session);
-      return "payment recorded";
-    }
-    return "session completed but not paid";
-  }
-  if (event.type === "checkout.session.expired") {
-    const session = event.data.object;
-    await markPaymentFailed(
-      session.metadata?.paymentId,
-      session.metadata?.bookingId,
-      "Checkout session expired"
-    );
-    return "session expiry recorded";
-  }
-  if (event.type === "payment_intent.payment_failed") {
-    const intent = event.data.object;
-    await markPaymentFailed(
-      intent.metadata?.paymentId,
-      intent.metadata?.bookingId,
-      intent.last_payment_error?.message ?? "Payment failed"
-    );
-    return "payment failure recorded";
-  }
-  return `ignored ${event.type}`;
-};
-var getPaymentStatusBySessionId = async (sessionId) => {
-  const payment = await prisma.payment.findUnique({
-    where: { stripeSessionId: sessionId },
-    select: paymentSelect
-  });
-  if (!payment) {
-    throw new AppError(404, "No payment found for that checkout session");
-  }
-  return toPayment(payment);
-};
-var getMyPaymentsFromDb = async (farmerId, filters) => {
-  const pagination = buildPagination(filters, ["createdAt"], "createdAt");
-  const where = {
-    farmerId,
-    ...filters.status === void 0 ? {} : { status: filters.status }
-  };
-  const [rows, total] = await Promise.all([
-    prisma.payment.findMany({
-      where,
-      select: paymentSelect,
-      orderBy: pagination.orderBy,
-      skip: pagination.skip,
-      take: pagination.take
-    }),
-    prisma.payment.count({ where })
-  ]);
-  return { data: rows.map(toPayment), meta: buildMeta(pagination.page, pagination.limit, total) };
-};
-var getPaymentByIdFromDb = async (id, actor) => {
-  const payment = await prisma.payment.findUnique({
-    where: { id },
-    select: paymentSelect
-  });
-  if (!payment) {
-    throw new AppError(404, "Payment not found");
-  }
-  if (actor.role !== "ADMIN" && payment.farmerId !== actor.id) {
-    throw new AppError(403, "You do not have access to this payment");
-  }
-  return toPayment(payment);
-};
-var refundPaymentDb = async (paymentId, adminId, reason2, ip) => {
-  const payment = await prisma.payment.findUnique({
-    where: { id: paymentId },
-    select: paymentSelect
-  });
-  if (!payment) {
-    throw new AppError(404, "Payment not found");
-  }
-  if (payment.status === "REFUNDED") {
-    throw new AppError(409, "This payment has already been refunded");
-  }
-  if (payment.status !== "SUCCEEDED") {
-    throw new AppError(
-      409,
-      `Only a SUCCEEDED payment can be refunded. This one is ${payment.status}.`
-    );
-  }
-  if (payment.stripePaymentIntentId === null) {
-    throw new AppError(
-      409,
-      "This payment has no Stripe payment intent recorded and cannot be refunded automatically"
-    );
-  }
-  try {
-    await stripe.refunds.create({ payment_intent: payment.stripePaymentIntentId });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown Stripe error";
-    throw new AppError(502, `Stripe refused the refund: ${message}`);
-  }
-  return prisma.$transaction(async (tx) => {
-    const updated = await tx.payment.update({
-      where: { id: paymentId },
-      data: { status: "REFUNDED", refundedAt: /* @__PURE__ */ new Date() },
-      select: paymentSelect
-    });
-    await writeAuditLog(tx, {
-      actorId: adminId,
-      action: "PAYMENT_REFUNDED",
-      entityType: "Payment",
-      entityId: paymentId,
-      before: { status: payment.status },
-      after: { status: updated.status, reason: reason2 ?? null },
-      ip
-    });
-    return toPayment(updated);
-  });
-};
-var paymentService = {
-  createCheckoutSessionDb,
-  constructWebhookEvent,
-  handleWebhookEvent,
-  getPaymentStatusBySessionId,
-  getMyPaymentsFromDb,
-  getPaymentByIdFromDb,
-  refundPaymentDb
-};
-
-// src/modules/payment/payment.controller.ts
-var createCheckoutSession = catchAsync(async (req, res) => {
-  const { bookingId } = req.body;
-  const data = await paymentService.createCheckoutSessionDb(req.user.id, bookingId);
-  sendResponse(res, {
-    statusCode: 201,
-    message: "Checkout session created. Open checkoutUrl to pay.",
-    data
-  });
-});
-var handleWebhook = catchAsync(async (req, res) => {
-  const signature = req.headers["stripe-signature"];
-  const event = paymentService.constructWebhookEvent(
-    req.body,
-    typeof signature === "string" ? signature : void 0
-  );
-  const outcome = await paymentService.handleWebhookEvent(event);
-  res.status(200).json({ received: true, type: event.type, outcome });
-});
-var OUTCOME_BY_STATUS = {
-  SUCCEEDED: "success",
-  PENDING: "processing",
-  FAILED: "failed",
-  REFUNDED: "refunded"
-};
-var OUTCOME_MESSAGE = {
-  success: "Payment confirmed. Your storage lot is booked.",
-  processing: "Payment received by Stripe. Waiting for confirmation, refresh in a moment.",
-  failed: "Payment failed. Your booking is unchanged, you can try again.",
-  cancelled: "Payment cancelled. The booking is still held until its payment window expires.",
-  refunded: "This payment has been refunded."
-};
-var respond = (req, res, outcome, data) => {
-  const message = OUTCOME_MESSAGE[outcome];
-  const format = typeof req.query.format === "string" ? req.query.format : "";
-  const acceptsHtml = (req.headers.accept ?? "").includes("text/html");
-  const wantsHtml = format === "html" || format !== "json" && acceptsHtml;
-  if (!wantsHtml) {
-    sendResponse(res, {
-      statusCode: 200,
-      message,
-      ...data === null ? {} : { data }
-    });
-    return;
-  }
-  const details = data === null ? [] : [
-    { label: "Lot", value: data.lotCode },
-    { label: "Amount", value: `${data.amountBdt} BDT` },
-    { label: "Charged", value: `${data.amount} ${data.currency.toUpperCase()}` },
-    { label: "Status", value: data.status }
-  ];
-  res.status(200).type("html").send(renderPaymentPage(outcome, details));
-};
-var paymentSuccess = catchAsync(async (req, res) => {
-  const sessionId = req.query.session_id;
-  if (typeof sessionId !== "string" || sessionId.length === 0) {
-    throw new AppError(400, "session_id is required");
-  }
-  const data = await paymentService.getPaymentStatusBySessionId(sessionId);
-  const outcome = OUTCOME_BY_STATUS[data.status] ?? "processing";
-  respond(req, res, outcome, data);
-});
-var paymentFailed = catchAsync(async (req, res) => {
-  const sessionId = req.query.session_id;
-  if (typeof sessionId !== "string" || sessionId.length === 0) {
-    respond(req, res, "failed", null);
-    return;
-  }
-  const data = await paymentService.getPaymentStatusBySessionId(sessionId);
-  respond(req, res, "failed", data);
-});
-var paymentCancel = catchAsync(async (req, res) => {
-  const sessionId = req.query.session_id;
-  if (typeof sessionId !== "string" || sessionId.length === 0) {
-    respond(req, res, "cancelled", null);
-    return;
-  }
-  const data = await paymentService.getPaymentStatusBySessionId(sessionId);
-  respond(req, res, "cancelled", data);
-});
-var getMyPayments = catchAsync(async (req, res) => {
-  const filters = validatedQuery(res);
-  const { data, meta } = await paymentService.getMyPaymentsFromDb(req.user.id, filters);
-  sendResponse(res, { statusCode: 200, message: "Payments retrieved successfully", data, meta });
-});
-var getPaymentById = catchAsync(async (req, res) => {
-  const data = await paymentService.getPaymentByIdFromDb(String(req.params.id), {
-    id: req.user.id,
-    role: req.user.role
-  });
-  sendResponse(res, { statusCode: 200, message: "Payment retrieved successfully", data });
-});
-var refundPayment = catchAsync(async (req, res) => {
-  const { reason: reason2 } = req.body;
-  const data = await paymentService.refundPaymentDb(
-    String(req.params.id),
-    req.user.id,
-    reason2,
-    req.ip
-  );
-  sendResponse(res, {
-    statusCode: 200,
-    message: `Payment refunded. ${data.amountBdt} BDT will return to the farmer.`,
-    data
-  });
-});
-var paymentController = {
-  createCheckoutSession,
-  handleWebhook,
-  paymentSuccess,
-  paymentCancel,
-  paymentFailed,
-  getMyPayments,
-  getPaymentById,
-  refundPayment
-};
-
 // src/modules/payment/payment.route.ts
 import { Router as Router9 } from "express";
-
-// src/modules/payment/payment.validation.ts
-import { z as z12 } from "zod";
-var PAYMENT_STATUSES = ["PENDING", "SUCCEEDED", "FAILED", "REFUNDED"];
-var createCheckoutSessionSchema = z12.object({
-  body: z12.object({
-    bookingId: z12.uuid({ error: "bookingId must be a valid uuid" })
-  }).strict()
-});
-var listPaymentsSchema = z12.object({
-  query: z12.object({
-    status: z12.enum(PAYMENT_STATUSES).optional(),
-    sortOrder: z12.enum(["asc", "desc"]).optional(),
-    page: z12.coerce.number().int().positive().optional(),
-    limit: z12.coerce.number().int().positive().max(100).optional()
-  }).strict()
-});
-var paymentIdSchema = z12.object({
-  params: z12.object({ id: z12.uuid({ error: "id must be a valid uuid" }) })
-});
-var refundPaymentSchema = z12.object({
-  params: z12.object({ id: z12.uuid({ error: "id must be a valid uuid" }) }),
-  body: z12.object({
-    reason: z12.string().trim().min(3).max(255).optional()
-  }).strict()
-});
-
-// src/modules/payment/payment.route.ts
 var router9 = Router9();
 router9.get("/success", paymentController.paymentSuccess);
 router9.get("/cancel", paymentController.paymentCancel);

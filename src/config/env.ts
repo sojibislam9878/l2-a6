@@ -11,7 +11,19 @@ const envSchema = z
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
     PORT: z.coerce.number().int().positive().default(5000),
     APP_URL: z.url({ error: "APP_URL must be a full URL, e.g. http://localhost:5000" }),
-    FRONTEND_URL: z.url({ error: "FRONTEND_URL must be a full URL" }),
+    FRONTEND_URL: z
+      .string({ error: "FRONTEND_URL is required" })
+      .transform((value) =>
+        value
+          .split(",")
+          .map((url) => url.trim().replace(/\/+$/, ""))
+          .filter((url) => url.length > 0),
+      )
+      .pipe(
+        z
+          .array(z.url({ error: "Each FRONTEND_URL entry must be a full URL, comma-separated" }))
+          .min(1, { error: "FRONTEND_URL needs at least one URL" }),
+      ),
 
     DATABASE_URL: required(
       "DATABASE_URL is empty — paste the DIRECT string (db.prisma.io) from console.prisma.io",

@@ -108,6 +108,7 @@ const toUsdCents = (amountBdt: number): number => Math.round(amountBdt * env.DEM
 const createCheckoutSessionDb = async (
   farmerId: string,
   bookingId: string,
+  frontendUrl: string,
 ): Promise<ICheckoutSession> => {
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, deletedAt: null },
@@ -202,8 +203,8 @@ const createCheckoutSessionDb = async (
       },
     ],
     metadata: { bookingId, paymentId: payment.id },
-    success_url: `${env.FRONTEND_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${env.FRONTEND_URL}/payment/failed?session_id={CHECKOUT_SESSION_ID}`,
+    success_url: `${frontendUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${frontendUrl}/payment/failed?session_id={CHECKOUT_SESSION_ID}`,
   });
 
   if (session.url === null) {

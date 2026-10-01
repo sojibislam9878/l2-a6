@@ -1,7 +1,8 @@
 import type { CookieOptions, Response } from "express";
-import { env, isProduction } from "../../config/env.js";
+import { isProduction } from "../../config/env.js";
 import { AppError } from "../../utils/AppError.js";
 import { catchAsync } from "../../utils/catchAsync.js";
+import { primaryFrontendUrl, resolveFrontendUrl } from "../../utils/frontendUrl.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 import type { ILoginPayload, ISignupPayload } from "./auth.interface.js";
 import { authService } from "./auth.service.js";
@@ -100,7 +101,8 @@ const logout = catchAsync(async (req, res) => {
 
 const googleRedirect = catchAsync(async (req, res) => {
   const mode = req.query.mode === "json" ? "json" : "redirect";
-  const url = await authService.createGoogleAuthUrl(mode);
+  const frontendUrl = resolveFrontendUrl(req.get("referer"));
+  const url = await authService.createGoogleAuthUrl(mode, frontendUrl);
   res.redirect(url);
 });
 
@@ -109,14 +111,17 @@ const googleCallback = catchAsync(async (req, res) => {
   const code = typeof req.query.code === "string" ? req.query.code : "";
   const denied = typeof req.query.error === "string" ? req.query.error : "";
 
-  const mode = state.length > 0 ? await authService.consumeGoogleState(state) : "redirect";
+  const { mode, frontendUrl } =
+    state.length > 0
+      ? await authService.consumeGoogleState(state)
+      : { mode: "redirect" as const, frontendUrl: primaryFrontendUrl };
 
   const fail = (status: number, message: string): void => {
     if (mode === "json") {
       res.status(status).json({ success: false, message, errors: [] });
       return;
     }
-    res.redirect(`${env.FRONTEND_URL}/?error=${encodeURIComponent(message)}`);
+    res.redirect(`${frontendUrl}/?error=${encodeURIComponent(message)}`);
   };
 
   if (denied.length > 0) {
@@ -158,7 +163,7 @@ const googleCallback = catchAsync(async (req, res) => {
     role: result.user.role,
   });
 
-  res.redirect(`${env.FRONTEND_URL}/?${params.toString()}`);
+  res.redirect(`${frontendUrl}/?${params.toString()}`);
 });
 
 const setPassword = catchAsync(async (req, res) => {

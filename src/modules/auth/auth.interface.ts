@@ -21,6 +21,8 @@ export type IPublicUser = {
 
 export type GoogleAuthMode = "redirect" | "json";
 
+export type GoogleAuthState = { mode: GoogleAuthMode; frontendUrl: string };
+
 export type IAuthResult = {
   accessToken: string;
   refreshToken: string;

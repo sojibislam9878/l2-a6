@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { validatedQuery } from "../../middlewares/validateRequest.js";
 import { AppError } from "../../utils/AppError.js";
 import { catchAsync } from "../../utils/catchAsync.js";
+import { resolveFrontendUrl } from "../../utils/frontendUrl.js";
 import { type PaymentOutcome, renderPaymentPage } from "../../utils/paymentPage.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 import type {
@@ -15,7 +16,11 @@ import { paymentService } from "./payment.service.js";
 
 const createCheckoutSession = catchAsync(async (req, res) => {
   const { bookingId } = req.body as ICreateCheckoutSessionPayload;
-  const data = await paymentService.createCheckoutSessionDb(req.user!.id, bookingId);
+  const data = await paymentService.createCheckoutSessionDb(
+    req.user!.id,
+    bookingId,
+    resolveFrontendUrl(req.get("origin")),
+  );
 
   sendResponse(res, {
     statusCode: 201,

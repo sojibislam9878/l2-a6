@@ -165,6 +165,8 @@ NODE_ENV=development
 PORT=8000
 APP_URL=http://localhost:8000
 FRONTEND_URL=http://localhost:3000
+# comma-separated for several frontends; the first is the default redirect target
+# FRONTEND_URL=https://agrostore-cyan.vercel.app,http://localhost:3000
 
 DATABASE_URL=postgresql://USER:PASSWORD@db.prisma.io:5432/postgres?sslmode=require
 
@@ -291,7 +293,7 @@ Base path: **`/api/v1`** · 73 endpoints · full request/response examples in th
              → express.raw() BEFORE express.json(), signature verified
              → Payment SUCCEEDED, Booking PAID, AuditLog row — all in one transaction
 
-4. Stripe redirects the browser to FRONTEND_URL/payment/success (or /payment/failed on cancel)
+4. Stripe redirects the browser to the frontend that started checkout (its Origin, if listed in FRONTEND_URL, else the first entry) at /payment/success (or /payment/failed on cancel)
              → the frontend polls GET /payments/success?session_id=…&format=json until the webhook lands
              → /payments/success, /cancel, /failed still render HTML or JSON for API clients
              → READ-ONLY, it never mutates anything
@@ -319,7 +321,7 @@ Base path: **`/api/v1`** · 73 endpoints · full request/response examples in th
 | Mass assignment | `.strict()` on every body schema — `role`, `status` and `email` are rejected with explicit messages |
 | Privilege escalation | Signup refuses `ADMIN`; admins cannot modify themselves or other admins |
 | Rate limiting | Redis-backed: 300/15 min global, 10/15 min auth, 6/15 min OTP, 10/min bookings, 20/15 min payments |
-| Headers & CORS | helmet, credentialed CORS pinned to `FRONTEND_URL` |
+| Headers & CORS | helmet, credentialed CORS limited to the origins listed in `FRONTEND_URL` |
 | Data integrity | 20 CHECK constraints — the database rejects bad rows even if application validation is bypassed |
 
 ---

@@ -7,6 +7,7 @@ import { prisma } from "../../lib/prisma.js";
 import { connectRedis, redis } from "../../lib/redis.js";
 import { AppError } from "../../utils/AppError.js";
 import { buildOtpEmail } from "../../utils/emailTemplates.js";
+import { primaryFrontendUrl, resolveFrontendUrl } from "../../utils/frontendUrl.js";
 import { jwtUtils } from "../../utils/jwt.js";
 import { consumeOtp, issueOtp } from "../../utils/otp.js";
 import {
@@ -18,6 +19,7 @@ import {
 import { isJtiRevoked, revokeJti } from "../../utils/tokenDenylist.js";
 import type {
   GoogleAuthMode,
+  GoogleAuthState,
   IAuthResult,
   ILoginPayload,
   ISignupPayload,
@@ -302,10 +304,11 @@ const changePasswordDb = async (
 const GOOGLE_STATE_TTL_SECONDS = 300;
 const stateKey = (state: string) => `oauth:google:state:${state}`;
 
-const createGoogleAuthUrl = async (mode: GoogleAuthMode): Promise<string> => {
+const createGoogleAuthUrl = async (mode: GoogleAuthMode, frontendUrl: string): Promise<string> => {
   await connectRedis();
   const state = randomUUID();
-  await redis.set(stateKey(state), mode, "EX", GOOGLE_STATE_TTL_SECONDS);
+  const stored: GoogleAuthState = { mode, frontendUrl };
+  await redis.set(stateKey(state), JSON.stringify(stored), "EX", GOOGLE_STATE_TTL_SECONDS);
 
   return googleClient.generateAuthUrl({
     scope: GOOGLE_SCOPES,
@@ -314,7 +317,7 @@ const createGoogleAuthUrl = async (mode: GoogleAuthMode): Promise<string> => {
   });
 };
 
-const consumeGoogleState = async (state: string): Promise<GoogleAuthMode> => {
+const consumeGoogleState = async (state: string): Promise<GoogleAuthState> => {
   await connectRedis();
   const stored = await redis.get(stateKey(state));
 
@@ -323,7 +326,16 @@ const consumeGoogleState = async (state: string): Promise<GoogleAuthMode> => {
   }
 
   await redis.del(stateKey(state));
-  return stored === "json" ? "json" : "redirect";
+
+  try {
+    const parsed = JSON.parse(stored) as Partial<GoogleAuthState>;
+    return {
+      mode: parsed.mode === "json" ? "json" : "redirect",
+      frontendUrl: resolveFrontendUrl(parsed.frontendUrl),
+    };
+  } catch {
+    return { mode: stored === "json" ? "json" : "redirect", frontendUrl: primaryFrontendUrl };
+  }
 };
 
 const googleAuthDb = async (code: string): Promise<IAuthResult> => {
